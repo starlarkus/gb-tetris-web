@@ -27,7 +27,7 @@ class Lobby extends React.Component {
         </p>
         <h3>Optional: send custom Garbage, Pieces and Well column to the server</h3>
         <p>
-          <a href="/minoselector" target="_blank">&gt; Click here to generate your own RNG &lt;</a>
+          <a href="https://minoselector.gblink.io" target="_blank">&gt; Click here to generate your own RNG &lt;</a>
         </p>
         <textarea rows="4" onChange={this.handlePresetRngChanged.bind(this)} value={this.state.preset_rng}></textarea>
         <div>
