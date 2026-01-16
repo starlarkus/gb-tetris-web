@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <link rel="icon" href="favicon.ico" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="GB Tetris - Play Tetris online with your Game Boy!" />
+  <link rel="apple-touch-icon" href="images/logo192.png" />
+  <meta name="theme-color" content="#563d7c">
+  <title>GB Tetris</title>
+
+  <!-- Bootstrap 4 CSS (local) -->
+  <link rel="stylesheet" href="css/bootstrap.min.css">
+
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="css/index.css">
+
+  <style>
+    .bd-placeholder-img {
+      font-size: 1.125rem;
+      text-anchor: middle;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
+    }
+
+    @media (min-width: 768px) {
+      .bd-placeholder-img-lg {
+        font-size: 3.5rem;
+      }
+    }
+
+    /* Hide all screens by default */
+    .screen {
+      display: none;
+    }
+  </style>
+</head>
+
+<body class="text-center">
+  <div class="cover-container d-flex w-100 h-100 p-3 mx-auto flex-column">
+    <header class="masthead mb-auto">
+      <div class="inner"></div>
+    </header>
+
+    <main role="main" class="inner cover">
+      <div id="root">
+
+        <!-- Screen: Connect (Initial) -->
+        <div id="screen-connect" class="screen connect">
+          <img src="images/animation.gif" class="gameboy" alt="Game Boy" />
+          <h2 class="cover-heading">Tetrilink</h2>
+          <p class="lead">Connect your Game Boy, boot Tetris, and start playing with your friends!</p>
+          <hr />
+          <h4>Connect your Game Boy</h4>
+          <p>Connect your Game Boy with the USB to Game Link adapter and click "connect".</p>
+          <button id="btn-connect" class="btn btn-lg btn-secondary">Connect</button>
+          <br />
+          <small>Version: 0.2</small>
+        </div>
+
+        <!-- Screen: Connecting -->
+        <div id="screen-connecting" class="screen connect">
+          <h2>Connecting...</h2>
+        </div>
+
+        <!-- Screen: Connecting to Tetris -->
+        <div id="screen-connecting-tetris" class="screen connect">
+          <h2>Connecting to Tetris...</h2>
+          <p>Ensure your Game Boy is turned on and in the Tetris main menu.</p>
+        </div>
+
+        <!-- Screen: Select Music -->
+        <div id="screen-music" class="screen connect">
+          <h2>Connection established!</h2>
+          <h4>Choose your tunes:</h4>
+          <button id="btn-music-a" class="musicButton btn btn-lg btn-secondary">MUSIC A</button>
+          <button id="btn-music-b" class="musicButton btn btn-lg btn-secondary">MUSIC B</button><br />
+          <hr />
+          <button id="btn-music-c" class="musicButton btn btn-lg btn-secondary">MUSIC C</button>
+          <button id="btn-music-off" class="musicButton btn btn-lg btn-secondary">MUSIC OFF</button><br />
+          <p>(Though obviously A is the best...)</p>
+          <br />
+          <button id="btn-music-next" class="btn btn-lg btn-secondary">Next</button>
+        </div>
+
+        <!-- Screen: Select Game (Create/Join) -->
+        <div id="screen-select-game" class="screen connect">
+          <h2>Select a username:</h2>
+          <input type="text" id="username" class="form-control username-input" />
+          <hr />
+          <div class="container">
+            <div class="row">
+              <div class="col-6">
+                <div class="card custom-card">
+                  <div class="card-body">
+                    <div class="card-title">
+                      <h4>Create game</h4>
+                    </div>
+                    <div class="card-text">
+                      <button id="btn-create-game" class="btn btn-lg btn-secondary">Create</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="col-6">
+                <div class="card custom-card">
+                  <div class="card-body">
+                    <div class="card-title">
+                      <h4>Join game</h4>
+                    </div>
+                    <div class="card-text">
+                      <input type="text" id="game-code-input" class="form-control game-code-input" placeholder="ABCD" />
+                      <button id="btn-join-game" class="btn btn-lg btn-secondary">Join</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <hr />
+        </div>
+
+        <!-- Screen: Joining Game -->
+        <div id="screen-joining" class="screen connect">
+          <h2>Connecting to game server...</h2>
+        </div>
+
+        <!-- Screen: Lobby -->
+        <div id="screen-lobby" class="screen connect">
+          <h2>In Lobby: <span id="lobby-game-code"></span></h2>
+          <h4>Players:</h4>
+          <div class="container">
+            <div id="lobby-players" class="row justify-content-center"></div>
+          </div>
+          <div id="lobby-admin-controls">
+            <button id="btn-start-game" class="btn btn-lg btn-secondary">Start game!</button>
+            <p>&nbsp;</p>
+            <h3>Optional: send custom Garbage, Pieces and Well column to the server</h3>
+            <p>
+              <a href="https://minoselector.gblink.io" target="_blank">&gt; Click here to generate your own RNG &lt;</a>
+            </p>
+            <textarea id="preset-rng" rows="4"></textarea>
+            <div>
+              <button id="btn-send-rng" class="btn btn-lg btn-secondary">Send RNG to Server</button>
+            </div>
+          </div>
+          <div id="lobby-waiting">
+            <p>Please wait for the lobby leader to start the game!</p>
+          </div>
+        </div>
+
+        <!-- Screen: Starting Game -->
+        <div id="screen-starting" class="screen connect">
+          <h2>Starting game...</h2>
+        </div>
+
+        <!-- Screen: In Game -->
+        <div id="screen-ingame" class="screen connect">
+          <h2>In Game: <span id="ingame-game-code"></span></h2>
+          <div class="container">
+            <div id="ingame-players" class="row justify-content-center"></div>
+          </div>
+          <button id="btn-next-game" class="btn btn-lg btn-secondary">Start next game!</button>
+        </div>
+
+        <!-- Screen: Finished -->
+        <div id="screen-finished" class="screen connect">
+          <h2>In Game: <span id="finished-game-code"></span></h2>
+          <div class="container">
+            <div id="finished-players" class="row justify-content-center"></div>
+          </div>
+          <h2>Game finished!</h2>
+          <button id="btn-finished-next" class="btn btn-lg btn-secondary">Start next game!</button>
+        </div>
+
+        <!-- Screen: Error -->
+        <div id="screen-error" class="screen connect">
+          <h2>Error</h2>
+          <h3 id="error-message"></h3>
+        </div>
+
+        <!-- Screen: No WebUSB -->
+        <div id="screen-no-webusb" class="screen connect">
+          <h2>Sorry, your browser does not support WebUSB!</h2>
+        </div>
+
+      </div>
+    </main>
+
+    <footer class="mastfoot mt-auto">
+      <div class="inner">
+        <p>Source at <a href="https://github.com/starlarkus/gb-tetris-web">github</a>.</p>
+      </div>
+    </footer>
+  </div>
+
+  <noscript>You need to enable JavaScript to run this app.</noscript>
+
+  <!-- Scripts -->
+  <script src="js/serial.js"></script>
+  <script src="js/gbwebsocket.js"></script>
+  <script src="js/app.js"></script>
+</body>
+
+</html>
