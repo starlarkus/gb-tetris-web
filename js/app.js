@@ -110,8 +110,7 @@ class OnlineTetris {
             this.handleSendPresetRng(presetRng);
         });
 
-        // In-game/Finished next game buttons
-        document.getElementById('btn-next-game').addEventListener('click', () => this.handleStartGame());
+        // Finished screen - next game button
         document.getElementById('btn-finished-next').addEventListener('click', () => this.handleStartGame());
     }
 
