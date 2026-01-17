@@ -74,6 +74,10 @@ class GBWebsocket {
         this.onlose = function (gb) {
             console.log("Lose not implemented!")
         }
+
+        this.onerror = function (gb, errorMsg) {
+            console.log("Error not implemented!", errorMsg)
+        }
         console.log(this.ongameupdate);
 
         this.admin = false;
@@ -209,9 +213,10 @@ class GBWebsocket {
                 this.ongameupdate(this);
                 break;
             case "error":
-                console.log("Error!")
-                this.state = this.GAME_STATE_ERROR;
-                this.ongameupdate(this);
+                console.log("Error!", message.msg)
+                this.game_status = this.GAME_STATE_ERROR;
+                this.errorMessage = message.msg;
+                this.onerror(this, message.msg);
                 break;
             case "end":
                 console.log("End!")

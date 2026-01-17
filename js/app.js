@@ -333,8 +333,8 @@ class OnlineTetris {
     }
 
     handleJoinGame(name, gameCode) {
-        if (!gameCode || gameCode.length != 4) {
-            console.error('not a valid input. must have length 4');
+        if (!gameCode || gameCode.length < 2 || gameCode.length > 4) {
+            console.error('not a valid input. must have length 2-4');
             return;
         }
         console.log("Join game");
@@ -358,6 +358,7 @@ class OnlineTetris {
         this.gb.onlines = this.gbLines.bind(this);
         this.gb.onwin = this.gbWin.bind(this);
         this.gb.onlose = this.gbLose.bind(this);
+        this.gb.onerror = this.gbError.bind(this);
     }
 
     // WebSocket callbacks
@@ -380,6 +381,12 @@ class OnlineTetris {
     gbUserInfo(gb) {
         console.log("userinfo");
         this.uuid = gb.uuid;
+    }
+
+    gbError(gb, errorMsg) {
+        console.error("Game error:", errorMsg);
+        document.getElementById('error-message').textContent = errorMsg;
+        this.setState(this.StateError);
     }
 
     gbGameStart(gb) {
