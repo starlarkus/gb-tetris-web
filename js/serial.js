@@ -71,7 +71,18 @@ class Serial {
                 console.log("Opening device...");
                 device = dev;
                 this.device = device;
-                return dev.open();
+
+                // If device is already open, reset it first
+                if (device.opened) {
+                    console.log("Device already open, resetting...");
+                    return device.reset().then(() => device);
+                }
+                return device.open();
+            }).then(() => {
+                // Ensure device is open after potential reset
+                if (!device.opened) {
+                    return device.open();
+                }
             }).then(() => {
                 console.log("Selecting configuration");
                 return device.selectConfiguration(1);
@@ -97,12 +108,49 @@ class Serial {
                 console.log("Ready!");
                 this.ready = true;
                 this.device = device;
+
+                // Set up cleanup on page unload
+                window.addEventListener('beforeunload', () => {
+                    this.close();
+                });
+
                 resolve();
             }).catch(err => {
                 console.error("Device connection error:", err);
                 reject(err);
             });
         });
+    }
+
+    // Reset the USB device
+    async reset() {
+        if (this.device && this.device.opened) {
+            try {
+                console.log("Resetting device...");
+                await this.device.reset();
+                console.log("Device reset complete");
+            } catch (err) {
+                console.error("Reset error:", err);
+            }
+        }
+    }
+
+    // Close and release the USB device
+    async close() {
+        if (this.device && this.device.opened) {
+            try {
+                console.log("Closing device...");
+                // Release the interface first
+                if (this.ifNum !== undefined) {
+                    await this.device.releaseInterface(this.ifNum);
+                }
+                await this.device.close();
+                console.log("Device closed");
+                this.ready = false;
+            } catch (err) {
+                console.error("Close error:", err);
+            }
+        }
     }
 
     read(num) {
