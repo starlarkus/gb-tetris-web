@@ -19,6 +19,25 @@ class Serial {
         this.send_active = false;
     }
 
+    // Clean up any previously paired devices that may be in a stale state
+    static async cleanupPreviousDevices() {
+        try {
+            const devices = await navigator.usb.getDevices();
+            for (const device of devices) {
+                if (device.opened) {
+                    console.log("Found stale device, closing...");
+                    try {
+                        await device.close();
+                    } catch (e) {
+                        console.log("Could not close stale device:", e);
+                    }
+                }
+            }
+        } catch (e) {
+            console.log("Cleanup error:", e);
+        }
+    }
+
     static getPorts() {
         return navigator.usb.getDevices().then(devices => {
             return devices;
@@ -63,63 +82,76 @@ class Serial {
         })
     }
 
-    getDevice() {
-        let device = null;
+    async getDevice() {
         this.ready = false;
-        return new Promise((resolve, reject) => {
-            Serial.requestPort().then(dev => {
-                console.log("Opening device...");
-                device = dev;
-                this.device = device;
 
-                // If device is already open, reset it first
-                if (device.opened) {
-                    console.log("Device already open, resetting...");
-                    return device.reset().then(() => device);
+        try {
+            // Request a device (shows picker dialog)
+            const device = await Serial.requestPort();
+            console.log("Opening device...");
+            this.device = device;
+
+            // If device was previously opened (stale connection), close it first
+            if (device.opened) {
+                console.log("Device was previously opened, closing first...");
+                try {
+                    await device.close();
+                } catch (e) {
+                    console.log("Close error (ignoring):", e);
                 }
-                return device.open();
-            }).then(() => {
-                // Ensure device is open after potential reset
-                if (!device.opened) {
-                    return device.open();
-                }
-            }).then(() => {
-                console.log("Selecting configuration");
-                return device.selectConfiguration(1);
-            }).then(() => {
-                console.log("Getting endpoints")
-                this.getEndpoints(device.configuration.interfaces);
-            }).then(() => {
-                console.log("Claiming interface");
-                return device.claimInterface(this.ifNum);
-            }).then(() => {
-                console.log("Select alt interface");
-                return device.selectAlternateInterface(this.ifNum, 0);
-            }).then(() => {
-                console.log("Control Transfer Out");
-                return device.controlTransferOut({
-                    'requestType': 'class',
-                    'recipient': 'interface',
-                    'request': 0x22,
-                    'value': 0x01,
-                    'index': this.ifNum
-                })
-            }).then(() => {
-                console.log("Ready!");
-                this.ready = true;
-                this.device = device;
+            }
 
-                // Set up cleanup on page unload
-                window.addEventListener('beforeunload', () => {
-                    this.close();
-                });
+            // Open the device fresh
+            console.log("Opening device fresh...");
+            await device.open();
 
-                resolve();
-            }).catch(err => {
-                console.error("Device connection error:", err);
-                reject(err);
+            // Reset the device to clear any stale state
+            console.log("Resetting device...");
+            try {
+                await device.reset();
+            } catch (e) {
+                console.log("Reset error (ignoring):", e);
+            }
+
+            // Re-open after reset if needed
+            if (!device.opened) {
+                console.log("Re-opening after reset...");
+                await device.open();
+            }
+
+            console.log("Selecting configuration");
+            await device.selectConfiguration(1);
+
+            console.log("Getting endpoints");
+            this.getEndpoints(device.configuration.interfaces);
+
+            console.log("Claiming interface");
+            await device.claimInterface(this.ifNum);
+
+            console.log("Select alt interface");
+            await device.selectAlternateInterface(this.ifNum, 0);
+
+            console.log("Control Transfer Out");
+            await device.controlTransferOut({
+                'requestType': 'class',
+                'recipient': 'interface',
+                'request': 0x22,
+                'value': 0x01,
+                'index': this.ifNum
             });
-        });
+
+            console.log("Ready!");
+            this.ready = true;
+
+            // Set up cleanup on page unload
+            window.addEventListener('beforeunload', () => {
+                this.close();
+            });
+
+        } catch (err) {
+            console.error("Device connection error:", err);
+            throw err;
+        }
     }
 
     // Reset the USB device

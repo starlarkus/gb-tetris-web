@@ -52,6 +52,9 @@ class OnlineTetris {
             return;
         }
 
+        // Clean up any stale USB connections from previous page session
+        Serial.cleanupPreviousDevices();
+
         // Generate random username
         document.getElementById('username').value = this.generateName();
 
