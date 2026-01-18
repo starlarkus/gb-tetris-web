@@ -467,6 +467,7 @@ class OnlineTetris {
         this.serial.bufSendHex("02", 50);
         this.serial.bufSendHex("02", 50);
         this.serial.bufSendHex("43", 50); // go to final screen
+        this.setState(this.StateFinished);
     }
 
     gbLose(gb) {
@@ -477,6 +478,7 @@ class OnlineTetris {
         this.serial.bufSendHex("02", 50);
         this.serial.bufSendHex("02", 50);
         this.serial.bufSendHex("43", 50); // go to final screen
+        this.setState(this.StateFinished);
     }
 
     // Game logic
