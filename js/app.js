@@ -42,10 +42,6 @@ class OnlineTetris {
         this.serial = null;
         this.gb = null;
 
-        // Priority queue for Game Boy commands
-        // Items are sent before poll commands in order of priority
-        this.priorityQueue = [];
-
         this.init();
     }
 
@@ -458,32 +454,30 @@ class OnlineTetris {
     }
 
     gbLines(gb, lines) {
-        console.log("Queueing lines to priority queue:", lines);
-        // Add lines byte to priority queue - will be sent on next timer tick
-        this.priorityQueue.push(lines);
+        console.log("lines - clearing buffer for priority");
+        this.serial.clearBuffer();
+        this.serial.bufSend(new Uint8Array([lines]), 10);
     }
 
     gbWin(gb) {
-        console.log("WIN! - queueing win sequence to priority queue");
-        // Queue the entire win sequence - these go at front since they're highest priority
-        // Sequence: 0xAA (bar full), 0x02, 0x02, 0x02, 0x43 (final screen)
-        this.priorityQueue.unshift(0x43);
-        this.priorityQueue.unshift(0x02);
-        this.priorityQueue.unshift(0x02);
-        this.priorityQueue.unshift(0x02);
-        this.priorityQueue.unshift(0xAA);
+        console.log("WIN! - clearing buffer for priority");
+        this.serial.clearBuffer();
+        this.serial.bufSendHex("AA", 50); // aa indicates BAR FULL
+        this.serial.bufSendHex("02", 50);
+        this.serial.bufSendHex("02", 50);
+        this.serial.bufSendHex("02", 50);
+        this.serial.bufSendHex("43", 50); // go to final screen
         this.setState(this.StateFinished);
     }
 
     gbLose(gb) {
-        console.log("LOSE! - queueing lose sequence to priority queue");
-        // Queue the entire lose sequence - these go at front since they're highest priority
-        // Sequence: 0x77 (other player reached 30), 0x02, 0x02, 0x02, 0x43 (final screen)
-        this.priorityQueue.unshift(0x43);
-        this.priorityQueue.unshift(0x02);
-        this.priorityQueue.unshift(0x02);
-        this.priorityQueue.unshift(0x02);
-        this.priorityQueue.unshift(0x77);
+        console.log("LOSE! - clearing buffer for priority");
+        this.serial.clearBuffer();
+        this.serial.bufSendHex("77", 50); // 77 indicates other player reached 30 lines
+        this.serial.bufSendHex("02", 50);
+        this.serial.bufSendHex("02", 50);
+        this.serial.bufSendHex("02", 50);
+        this.serial.bufSendHex("43", 50); // go to final screen
         this.setState(this.StateFinished);
     }
 
@@ -508,16 +502,7 @@ class OnlineTetris {
 
     startGameTimer() {
         setTimeout(() => {
-            // Check priority queue first - if there are items, send them instead of poll
-            let byteToSend;
-            if (this.priorityQueue.length > 0) {
-                byteToSend = this.priorityQueue.shift();
-                console.log("Sending from priority queue:", byteToSend.toString(16));
-            } else {
-                byteToSend = 0x02; // Default poll command
-            }
-
-            this.serial.send(new Uint8Array([byteToSend]));
+            this.serial.bufSendHex("02", 10); // fixed height
             this.serial.read(64).then(result => {
                 var data = result.data.buffer;
                 // Note: data.length is intentionally used (undefined for ArrayBuffer)
@@ -535,25 +520,15 @@ class OnlineTetris {
                         console.log("Sending lines!", value.toString(16));
                         this.gb.sendLines(value);
                     } else if (value === 0x77) { // we won by reaching 30 lines
-                        // Only process if we haven't already received server verdict
-                        if (this.currentState !== this.StateFinished) {
-                            console.log("We reached 30 lines - WIN!");
-                            this.setState(this.StateFinished);
-                            this.gb.sendReached30Lines();
-                        } else {
-                            console.log("Ignoring GB 0x77 - already finished");
-                        }
+                        console.log("We reached 30 lines - WIN!");
+                        this.setState(this.StateFinished);
+                        this.gb.sendReached30Lines();
                     } else if (value === 0xaa) { // we lost...
-                        // Only process if we haven't already received server verdict
-                        if (this.currentState !== this.StateFinished) {
-                            console.log("We topped out - LOSE!");
-                            this.setState(this.StateFinished);
-                            this.gb.sendDead();
-                        } else {
-                            console.log("Ignoring GB 0xAA - already finished");
-                        }
+                        console.log("We topped out - LOSE!");
+                        this.setState(this.StateFinished);
+                        this.gb.sendDead();
                     } else if (value === 0xFF) { // screen is filled after loss
-                        this.priorityQueue.push(0x43); // Queue the final screen command
+                        this.serial.bufSendHex("43", 10);
                     }
                 }
                 this.startGameTimer();
