@@ -469,27 +469,33 @@ class OnlineTetris {
     }
 
     gbWin(gb) {
-        console.log("WIN! - sending win sequence directly");
-        // Send win sequence directly since we're about to set StateFinished
+        console.log("WIN! - queueing win sequence");
+        // Queue the entire win sequence - will be processed by game timer
         // Sequence: 0xAA (bar full), 0x02, 0x02, 0x02, 0x43 (final screen)
-        this.serial.bufSendHex("AA", 50);
-        this.serial.bufSendHex("02", 50);
-        this.serial.bufSendHex("02", 50);
-        this.serial.bufSendHex("02", 50);
-        this.serial.bufSendHex("43", 50);
-        this.setState(this.StateFinished);
+        this.priorityQueue.push(0xAA);
+        this.priorityQueue.push(0x02);
+        this.priorityQueue.push(0x02);
+        this.priorityQueue.push(0x02);
+        this.priorityQueue.push(0x43);
+        // Set state after a delay to allow queue to drain
+        setTimeout(() => {
+            this.setState(this.StateFinished);
+        }, 600);
     }
 
     gbLose(gb) {
-        console.log("LOSE! - sending lose sequence directly");
-        // Send lose sequence directly since we're about to set StateFinished
+        console.log("LOSE! - queueing lose sequence");
+        // Queue the entire lose sequence - will be processed by game timer
         // Sequence: 0x77 (other player reached 30), 0x02, 0x02, 0x02, 0x43 (final screen)
-        this.serial.bufSendHex("77", 50);
-        this.serial.bufSendHex("02", 50);
-        this.serial.bufSendHex("02", 50);
-        this.serial.bufSendHex("02", 50);
-        this.serial.bufSendHex("43", 50);
-        this.setState(this.StateFinished);
+        this.priorityQueue.push(0x77);
+        this.priorityQueue.push(0x02);
+        this.priorityQueue.push(0x02);
+        this.priorityQueue.push(0x02);
+        this.priorityQueue.push(0x43);
+        // Set state after a delay to allow queue to drain
+        setTimeout(() => {
+            this.setState(this.StateFinished);
+        }, 600);
     }
 
     // Game logic
@@ -513,14 +519,17 @@ class OnlineTetris {
 
     startGameTimer() {
         setTimeout(() => {
-            // Only process priority queue when in game
-            // When finished, just send poll to keep connection alive
+            // Always process priority queue if it has items
+            // Only send poll command if queue is empty
             let byteToSend;
-            if (this.currentState === this.StateInGame && this.priorityQueue.length > 0) {
+            if (this.priorityQueue.length > 0) {
                 byteToSend = this.priorityQueue.shift();
                 console.log("Sending from priority queue:", byteToSend.toString(16));
+            } else if (this.currentState === this.StateInGame) {
+                byteToSend = 0x02; // Poll command during game
             } else {
-                byteToSend = 0x02; // Default poll command
+                // Not in game and queue empty - just poll to keep alive
+                byteToSend = 0x02;
             }
 
             this.serial.send(new Uint8Array([byteToSend]));
@@ -541,27 +550,38 @@ class OnlineTetris {
                         console.log("Sending lines!", value.toString(16));
                         this.gb.sendLines(value);
                     } else if (value === 0x77) { // we won by reaching 30 lines
-                        // Only process if we haven't already received server verdict
+                        // Python: sends "win" to server AND calls end_match_from_server(won=True)
+                        // which queues the win sequence
                         if (this.currentState !== this.StateFinished) {
-                            console.log("We reached 30 lines - WIN!");
-                            this.setState(this.StateFinished);
-                            this.gb.sendReached30Lines();
+                            console.log("We reached 30 lines - WIN! Queueing win sequence");
+                            this.gb.sendReached30Lines(); // Tell server
+                            // Queue win sequence (like end_match_from_server does)
+                            this.priorityQueue.push(0xAA);
+                            this.priorityQueue.push(0x02);
+                            this.priorityQueue.push(0x02);
+                            this.priorityQueue.push(0x02);
+                            this.priorityQueue.push(0x43);
+                            // Set state after delay to allow queue to drain
+                            setTimeout(() => {
+                                this.setState(this.StateFinished);
+                            }, 600);
                         } else {
                             console.log("Ignoring GB 0x77 - already finished");
                         }
-                    } else if (value === 0xaa) { // we lost...
-                        // Only process if we haven't already received server verdict
+                    } else if (value === 0xaa) { // we lost (animation starting)
+                        // Python: ONLY sends "dead" to server, does NOT set in_match=False yet
+                        // Wait for 0xFF to actually end the match
                         if (this.currentState !== this.StateFinished) {
-                            console.log("We topped out - LOSE!");
-                            this.setState(this.StateFinished);
+                            console.log("We topped out - sending dead to server");
                             this.gb.sendDead();
+                            // Don't set StateFinished yet - wait for 0xFF
                         } else {
                             console.log("Ignoring GB 0xAA - already finished");
                         }
                     } else if (value === 0xFF) { // screen is filled after loss
-                        // Send final screen command directly since we're in StateFinished
-                        // and the priority queue won't be processed
-                        console.log("Screen filled - sending 0x43 directly");
+                        // Python: sets in_match=False, then sends CMD_FINAL directly
+                        console.log("Screen filled - setting finished and sending 0x43 directly");
+                        this.setState(this.StateFinished);
                         this.serial.send(new Uint8Array([0x43]));
                     }
                 }
