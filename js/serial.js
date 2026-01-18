@@ -178,6 +178,12 @@ class Serial {
         return this.device.transferOut(this.epOut, data);
     }
 
+    // Clear the buffer - used for priority commands that need to be sent immediately
+    clearBuffer() {
+        this.buffer = [];
+        console.log("Buffer cleared for priority command");
+    }
+
     bufSendFunction() {
         this.send_active = true;
         if (this.buffer.length === 0) {

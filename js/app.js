@@ -446,12 +446,14 @@ class OnlineTetris {
     }
 
     gbLines(gb, lines) {
-        console.log("lines");
+        console.log("lines - clearing buffer for priority");
+        this.serial.clearBuffer();
         this.serial.bufSend(new Uint8Array([lines]), 10);
     }
 
     gbWin(gb) {
-        console.log("WIN!");
+        console.log("WIN! - clearing buffer for priority");
+        this.serial.clearBuffer();
         this.serial.bufSendHex("AA", 50); // aa indicates BAR FULL
         this.serial.bufSendHex("02", 50);
         this.serial.bufSendHex("02", 50);
@@ -460,7 +462,8 @@ class OnlineTetris {
     }
 
     gbLose(gb) {
-        console.log("LOSE!");
+        console.log("LOSE! - clearing buffer for priority");
+        this.serial.clearBuffer();
         this.serial.bufSendHex("77", 50); // 77 indicates other player reached 30 lines
         this.serial.bufSendHex("02", 50);
         this.serial.bufSendHex("02", 50);
