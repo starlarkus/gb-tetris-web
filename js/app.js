@@ -403,6 +403,11 @@ class OnlineTetris {
     gbGameStart(gb) {
         console.log("Got game start.");
 
+        // Clear any stale items from previous game
+        this.priorityQueue = [];
+        this.height = 0;
+        console.log("Reset priority queue and height for new game");
+
         // Step 1: start game message
         if (this.isFirstGame()) {
             console.log('is first game');
@@ -508,9 +513,10 @@ class OnlineTetris {
 
     startGameTimer() {
         setTimeout(() => {
-            // Check priority queue first - if there are items, send them instead of poll
+            // Only process priority queue when in game
+            // When finished, just send poll to keep connection alive
             let byteToSend;
-            if (this.priorityQueue.length > 0) {
+            if (this.currentState === this.StateInGame && this.priorityQueue.length > 0) {
                 byteToSend = this.priorityQueue.shift();
                 console.log("Sending from priority queue:", byteToSend.toString(16));
             } else {
