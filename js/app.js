@@ -332,8 +332,8 @@ class OnlineTetris {
     }
 
     handleJoinGame(name, gameCode) {
-        if (!gameCode || gameCode.length < 2 || gameCode.length > 4) {
-            console.error('not a valid input. must have length 2-4');
+        if (!gameCode || gameCode.length < 1 || gameCode.length > 4) {
+            console.error('not a valid input. must have length 1-4');
             return;
         }
         console.log("Join game");
