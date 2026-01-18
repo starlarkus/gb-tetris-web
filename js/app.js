@@ -199,6 +199,15 @@ class OnlineTetris {
     updateFinishedUI() {
         document.getElementById('finished-game-code').textContent = this.gameCode;
         this.renderPlayers('finished-players', this.users);
+
+        // Only host can start next game
+        if (this.isAdmin) {
+            document.getElementById('finished-admin-controls').style.display = 'block';
+            document.getElementById('finished-waiting').style.display = 'none';
+        } else {
+            document.getElementById('finished-admin-controls').style.display = 'none';
+            document.getElementById('finished-waiting').style.display = 'block';
+        }
     }
 
     // Render player cards
