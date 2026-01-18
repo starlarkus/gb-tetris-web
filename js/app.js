@@ -336,8 +336,8 @@ class OnlineTetris {
     }
 
     handleJoinGame(name, gameCode) {
-        if (!gameCode || gameCode.length < 1 || gameCode.length > 4) {
-            console.error('not a valid input. must have length 1-4');
+        if (!gameCode || gameCode.length < 2 || gameCode.length > 4) {
+            console.error('not a valid input. must have length 2-4');
             return;
         }
         console.log("Join game");
@@ -469,26 +469,26 @@ class OnlineTetris {
     }
 
     gbWin(gb) {
-        console.log("WIN! - sending win sequence directly");
-        // Send win sequence directly since we're about to set StateFinished
+        console.log("WIN! - queueing win sequence to priority queue");
+        // Queue the entire win sequence - these go at front since they're highest priority
         // Sequence: 0xAA (bar full), 0x02, 0x02, 0x02, 0x43 (final screen)
-        this.serial.bufSendHex("AA", 50);
-        this.serial.bufSendHex("02", 50);
-        this.serial.bufSendHex("02", 50);
-        this.serial.bufSendHex("02", 50);
-        this.serial.bufSendHex("43", 50);
+        this.priorityQueue.unshift(0x43);
+        this.priorityQueue.unshift(0x02);
+        this.priorityQueue.unshift(0x02);
+        this.priorityQueue.unshift(0x02);
+        this.priorityQueue.unshift(0xAA);
         this.setState(this.StateFinished);
     }
 
     gbLose(gb) {
-        console.log("LOSE! - sending lose sequence directly");
-        // Send lose sequence directly since we're about to set StateFinished
+        console.log("LOSE! - queueing lose sequence to priority queue");
+        // Queue the entire lose sequence - these go at front since they're highest priority
         // Sequence: 0x77 (other player reached 30), 0x02, 0x02, 0x02, 0x43 (final screen)
-        this.serial.bufSendHex("77", 50);
-        this.serial.bufSendHex("02", 50);
-        this.serial.bufSendHex("02", 50);
-        this.serial.bufSendHex("02", 50);
-        this.serial.bufSendHex("43", 50);
+        this.priorityQueue.unshift(0x43);
+        this.priorityQueue.unshift(0x02);
+        this.priorityQueue.unshift(0x02);
+        this.priorityQueue.unshift(0x02);
+        this.priorityQueue.unshift(0x77);
         this.setState(this.StateFinished);
     }
 
@@ -527,7 +527,7 @@ class OnlineTetris {
             this.serial.read(64).then(result => {
                 var data = result.data.buffer;
                 // Note: data.length is intentionally used (undefined for ArrayBuffer)
-                // ensures we always process the first byte
+                // to match React behavior - ensures we always process the first byte
                 if (data.length > 1) {
                     console.log("Data too long");
                     console.log(data.length);
@@ -559,10 +559,7 @@ class OnlineTetris {
                             console.log("Ignoring GB 0xAA - already finished");
                         }
                     } else if (value === 0xFF) { // screen is filled after loss
-                        // Send final screen command directly since we're in StateFinished
-                        // and the priority queue won't be processed
-                        console.log("Screen filled - sending 0x43 directly");
-                        this.serial.send(new Uint8Array([0x43]));
+                        this.priorityQueue.push(0x43); // Queue the final screen command
                     }
                 }
                 this.startGameTimer();
