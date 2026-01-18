@@ -502,7 +502,10 @@ class OnlineTetris {
 
     startGameTimer() {
         setTimeout(() => {
-            this.serial.bufSendHex("02", 10); // fixed height
+            // Send opponent's max height to Game Boy
+            var heights = [0].concat(this.gb.getOtherUsers().map(u => u.height || 0));
+            var opponentHeight = Math.max(...heights);
+            this.serial.send(new Uint8Array([opponentHeight]));
             this.serial.read(64).then(result => {
                 var data = result.data.buffer;
                 // Note: data.length is intentionally used (undefined for ArrayBuffer)
