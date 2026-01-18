@@ -42,10 +42,6 @@ class OnlineTetris {
         this.serial = null;
         this.gb = null;
 
-        // Priority queue for Game Boy commands
-        // Items are sent before poll commands in order of priority
-        this.priorityQueue = [];
-
         this.init();
     }
 
@@ -336,8 +332,8 @@ class OnlineTetris {
     }
 
     handleJoinGame(name, gameCode) {
-        if (!gameCode || gameCode.length < 1 || gameCode.length > 4) {
-            console.error('not a valid input. must have length 1-4');
+        if (!gameCode || gameCode.length < 2 || gameCode.length > 4) {
+            console.error('not a valid input. must have length 2-4');
             return;
         }
         console.log("Join game");
@@ -378,15 +374,7 @@ class OnlineTetris {
         console.log(gb.users);
         this.gameCode = gb.game_name;
         this.users = gb.users;
-
-        // Check if game ended (status 2 = finished)
-        // This handles the case where we didn't receive an explicit win/lose message
-        if (gb.game_status === gb.GAME_STATE_FINISHED && this.currentState === this.StateInGame) {
-            console.log("Game ended via status update - transitioning to Finished");
-            this.setState(this.StateFinished);
-        } else {
-            this.updateUI();
-        }
+        this.updateUI();
     }
 
     gbUserInfo(gb) {
@@ -402,11 +390,6 @@ class OnlineTetris {
 
     gbGameStart(gb) {
         console.log("Got game start.");
-
-        // Clear any stale items from previous game
-        this.priorityQueue = [];
-        this.height = 0;
-        console.log("Reset priority queue and height for new game");
 
         // Step 1: start game message
         if (this.isFirstGame()) {
@@ -463,39 +446,26 @@ class OnlineTetris {
     }
 
     gbLines(gb, lines) {
-        console.log("Queueing lines to priority queue:", lines);
-        // Add lines byte to priority queue - will be sent on next timer tick
-        this.priorityQueue.push(lines);
+        console.log("lines");
+        this.serial.bufSend(new Uint8Array([lines]), 10);
     }
 
     gbWin(gb) {
-        console.log("WIN! - queueing win sequence");
-        // Queue the entire win sequence - will be processed by game timer
-        // Sequence: 0xAA (bar full), 0x02, 0x02, 0x02, 0x43 (final screen)
-        this.priorityQueue.push(0xAA);
-        this.priorityQueue.push(0x02);
-        this.priorityQueue.push(0x02);
-        this.priorityQueue.push(0x02);
-        this.priorityQueue.push(0x43);
-        // Set state after a delay to allow queue to drain
-        setTimeout(() => {
-            this.setState(this.StateFinished);
-        }, 600);
+        console.log("WIN!");
+        this.serial.bufSendHex("AA", 50); // aa indicates BAR FULL
+        this.serial.bufSendHex("02", 50);
+        this.serial.bufSendHex("02", 50);
+        this.serial.bufSendHex("02", 50);
+        this.serial.bufSendHex("43", 50); // go to final screen
     }
 
     gbLose(gb) {
-        console.log("LOSE! - queueing lose sequence");
-        // Queue the entire lose sequence - will be processed by game timer
-        // Sequence: 0x77 (other player reached 30), 0x02, 0x02, 0x02, 0x43 (final screen)
-        this.priorityQueue.push(0x77);
-        this.priorityQueue.push(0x02);
-        this.priorityQueue.push(0x02);
-        this.priorityQueue.push(0x02);
-        this.priorityQueue.push(0x43);
-        // Set state after a delay to allow queue to drain
-        setTimeout(() => {
-            this.setState(this.StateFinished);
-        }, 600);
+        console.log("LOSE!");
+        this.serial.bufSendHex("77", 50); // 77 indicates other player reached 30 lines
+        this.serial.bufSendHex("02", 50);
+        this.serial.bufSendHex("02", 50);
+        this.serial.bufSendHex("02", 50);
+        this.serial.bufSendHex("43", 50); // go to final screen
     }
 
     // Game logic
@@ -519,27 +489,12 @@ class OnlineTetris {
 
     startGameTimer() {
         setTimeout(() => {
-            // Always process priority queue if it has items
-            // Only send poll command if queue is empty
-            let byteToSend;
-            if (this.priorityQueue.length > 0) {
-                byteToSend = this.priorityQueue.shift();
-                console.log("Sending from priority queue:", byteToSend.toString(16));
-            } else if (this.currentState === this.StateInGame) {
-                byteToSend = 0x02; // Poll command during game
-            } else {
-                // Not in game and queue empty - just poll to keep alive
-                byteToSend = 0x02;
-            }
-
-            this.serial.send(new Uint8Array([byteToSend]));
+            this.serial.bufSendHex("02", 10); // fixed height
             this.serial.read(64).then(result => {
                 var data = result.data.buffer;
-                // Note: data.length is intentionally used (undefined for ArrayBuffer)
-                // ensures we always process the first byte
-                if (data.length > 1) {
+                if (data.byteLength > 1) {
                     console.log("Data too long");
-                    console.log(data.length);
+                    console.log(data.byteLength);
                     // Ignore old data in buffer
                     this.startGameTimer();
                 } else {
@@ -550,39 +505,13 @@ class OnlineTetris {
                         console.log("Sending lines!", value.toString(16));
                         this.gb.sendLines(value);
                     } else if (value === 0x77) { // we won by reaching 30 lines
-                        // Python: sends "win" to server AND calls end_match_from_server(won=True)
-                        // which queues the win sequence
-                        if (this.currentState !== this.StateFinished) {
-                            console.log("We reached 30 lines - WIN! Queueing win sequence");
-                            this.gb.sendReached30Lines(); // Tell server
-                            // Queue win sequence (like end_match_from_server does)
-                            this.priorityQueue.push(0xAA);
-                            this.priorityQueue.push(0x02);
-                            this.priorityQueue.push(0x02);
-                            this.priorityQueue.push(0x02);
-                            this.priorityQueue.push(0x43);
-                            // Set state after delay to allow queue to drain
-                            setTimeout(() => {
-                                this.setState(this.StateFinished);
-                            }, 600);
-                        } else {
-                            console.log("Ignoring GB 0x77 - already finished");
-                        }
-                    } else if (value === 0xaa) { // we lost (animation starting)
-                        // Python: ONLY sends "dead" to server, does NOT set in_match=False yet
-                        // Wait for 0xFF to actually end the match
-                        if (this.currentState !== this.StateFinished) {
-                            console.log("We topped out - sending dead to server");
-                            this.gb.sendDead();
-                            // Don't set StateFinished yet - wait for 0xFF
-                        } else {
-                            console.log("Ignoring GB 0xAA - already finished");
-                        }
-                    } else if (value === 0xFF) { // screen is filled after loss
-                        // Python: sets in_match=False, then sends CMD_FINAL directly
-                        console.log("Screen filled - setting finished and sending 0x43 directly");
                         this.setState(this.StateFinished);
-                        this.serial.send(new Uint8Array([0x43]));
+                        this.gb.sendReached30Lines();
+                    } else if (value === 0xaa) { // we lost...
+                        this.setState(this.StateFinished);
+                        this.gb.sendDead();
+                    } else if (value === 0xFF) { // screen is filled after loss
+                        this.serial.bufSendHex("43", 10);
                     }
                 }
                 this.startGameTimer();
