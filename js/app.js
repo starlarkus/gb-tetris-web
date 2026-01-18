@@ -374,7 +374,15 @@ class OnlineTetris {
         console.log(gb.users);
         this.gameCode = gb.game_name;
         this.users = gb.users;
-        this.updateUI();
+
+        // Check if game ended (status 2 = finished)
+        // This handles the case where we didn't receive an explicit win/lose message
+        if (gb.game_status === gb.GAME_STATE_FINISHED && this.currentState === this.StateInGame) {
+            console.log("Game ended via status update - transitioning to Finished");
+            this.setState(this.StateFinished);
+        } else {
+            this.updateUI();
+        }
     }
 
     gbUserInfo(gb) {
@@ -495,9 +503,11 @@ class OnlineTetris {
             this.serial.bufSendHex("02", 10); // fixed height
             this.serial.read(64).then(result => {
                 var data = result.data.buffer;
-                if (data.byteLength > 1) {
+                // Note: data.length is intentionally used (undefined for ArrayBuffer)
+                // to match React behavior - ensures we always process the first byte
+                if (data.length > 1) {
                     console.log("Data too long");
-                    console.log(data.byteLength);
+                    console.log(data.length);
                     // Ignore old data in buffer
                     this.startGameTimer();
                 } else {
@@ -508,9 +518,11 @@ class OnlineTetris {
                         console.log("Sending lines!", value.toString(16));
                         this.gb.sendLines(value);
                     } else if (value === 0x77) { // we won by reaching 30 lines
+                        console.log("We reached 30 lines - WIN!");
                         this.setState(this.StateFinished);
                         this.gb.sendReached30Lines();
                     } else if (value === 0xaa) { // we lost...
+                        console.log("We topped out - LOSE!");
                         this.setState(this.StateFinished);
                         this.gb.sendDead();
                     } else if (value === 0xFF) { // screen is filled after loss
