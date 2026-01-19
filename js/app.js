@@ -42,6 +42,11 @@ class OnlineTetris {
         this.serial = null;
         this.gb = null;
 
+        // Priority queues for Game Boy communication (checked each loop iteration)
+        this.winLoseQueue = [];  // Higher priority - win/lose command sequences
+        this.linesQueue = [];    // Lower priority - incoming lines from opponent
+        this.gameLoopActive = false;
+
         this.init();
     }
 
@@ -408,6 +413,11 @@ class OnlineTetris {
     gbGameStart(gb) {
         console.log("Got game start.");
 
+        // Clear any leftover commands from previous game
+        this.winLoseQueue = [];
+        this.linesQueue = [];
+        this.gameLoopActive = false;
+
         // Step 1: start game message
         if (this.isFirstGame()) {
             console.log('is first game');
@@ -463,30 +473,21 @@ class OnlineTetris {
     }
 
     gbLines(gb, lines) {
-        console.log("lines - clearing buffer for priority");
-        this.serial.clearBuffer();
-        this.serial.bufSend(new Uint8Array([lines]), 10);
+        console.log("lines - adding to queue:", lines.toString(16));
+        this.linesQueue.push(lines);
     }
 
     gbWin(gb) {
-        console.log("WIN! - clearing buffer for priority");
-        this.serial.clearBuffer();
-        this.serial.bufSendHex("AA", 50); // aa indicates BAR FULL
-        this.serial.bufSendHex("02", 50);
-        this.serial.bufSendHex("02", 50);
-        this.serial.bufSendHex("02", 50);
-        this.serial.bufSendHex("43", 50); // go to final screen
+        console.log("WIN! - queuing win sequence");
+        // Queue the win sequence: AA (bar full), 02x3 (polls), 43 (final screen)
+        this.winLoseQueue.push(0xAA, 0x02, 0x02, 0x02, 0x43);
         this.setState(this.StateFinished);
     }
 
     gbLose(gb) {
-        console.log("LOSE! - clearing buffer for priority");
-        this.serial.clearBuffer();
-        this.serial.bufSendHex("77", 50); // 77 indicates other player reached 30 lines
-        this.serial.bufSendHex("02", 50);
-        this.serial.bufSendHex("02", 50);
-        this.serial.bufSendHex("02", 50);
-        this.serial.bufSendHex("43", 50); // go to final screen
+        console.log("LOSE! - queuing lose sequence");
+        // Queue the lose sequence: 77 (opponent reached 30), 02x3 (polls), 43 (final screen)
+        this.winLoseQueue.push(0x77, 0x02, 0x02, 0x02, 0x43);
         this.setState(this.StateFinished);
     }
 
@@ -510,11 +511,29 @@ class OnlineTetris {
     }
 
     startGameTimer() {
+        this.gameLoopActive = true;
         setTimeout(() => {
-            // Send opponent's max height to Game Boy
-            var heights = [0].concat(this.gb.getOtherUsers().map(u => u.height || 0));
-            var opponentHeight = Math.max(...heights);
-            this.serial.send(new Uint8Array([opponentHeight]));
+            // Stop the loop if game ended or state changed
+            if (!this.gameLoopActive) {
+                console.log("Game loop stopped (gameLoopActive=false)");
+                return;
+            }
+
+            // Determine what byte to send - priority: winLose > lines > opponentHeight
+            let byteToSend;
+            if (this.winLoseQueue.length > 0) {
+                byteToSend = this.winLoseQueue.shift();
+                console.log("Sending from winLoseQueue:", byteToSend.toString(16));
+            } else if (this.linesQueue.length > 0) {
+                byteToSend = this.linesQueue.shift();
+                console.log("Sending from linesQueue:", byteToSend.toString(16));
+            } else {
+                // Default: send opponent's max height
+                var heights = [0].concat(this.gb.getOtherUsers().map(u => u.height || 0));
+                byteToSend = Math.max(...heights);
+            }
+
+            this.serial.send(new Uint8Array([byteToSend]));
             this.serial.read(64).then(result => {
                 var data = result.data.buffer;
                 // Note: data.length is intentionally used (undefined for ArrayBuffer)
@@ -533,14 +552,17 @@ class OnlineTetris {
                         this.gb.sendLines(value);
                     } else if (value === 0x77) { // we won by reaching 30 lines
                         console.log("We reached 30 lines - WIN!");
+                        this.gameLoopActive = false;
                         this.setState(this.StateFinished);
                         this.gb.sendReached30Lines();
                     } else if (value === 0xaa) { // we lost...
                         console.log("We topped out - LOSE!");
+                        this.gameLoopActive = false;
                         this.setState(this.StateFinished);
                         this.gb.sendDead();
                     } else if (value === 0xFF) { // screen is filled after loss
-                        this.serial.bufSendHex("43", 10);
+                        // Queue the final screen command instead of using buffer directly
+                        this.winLoseQueue.push(0x43);
                     }
                 }
                 this.startGameTimer();
