@@ -571,8 +571,11 @@ class OnlineTetris {
                         this.setState(this.StateFinished);
                         this.gb.sendDead();
                     } else if (value === 0xFF) { // screen is filled after loss
-                        // Queue the final screen command instead of using buffer directly
-                        this.winLoseQueue.push(0x43);
+                        // Send final screen command once and stop the loop
+                        console.log("Screen fill complete, sending final command");
+                        this.gameLoopActive = false;
+                        this.serial.bufSendHex("43", 50);
+                        return; // Exit, don't restart the loop
                     }
                 }
                 this.startGameTimer();
