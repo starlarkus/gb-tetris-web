@@ -413,19 +413,10 @@ class OnlineTetris {
     gbGameStart(gb) {
         console.log("Got game start.");
 
-        // Stop the game loop
+        // Clear any leftover commands from previous game
+        this.winLoseQueue = [];
+        this.linesQueue = [];
         this.gameLoopActive = false;
-
-        // Drain any pending commands through the buffer first (don't cut them off)
-        // This ensures the previous game's final commands complete
-        while (this.winLoseQueue.length > 0) {
-            const cmd = this.winLoseQueue.shift();
-            this.serial.bufSend(new Uint8Array([cmd]), 100);
-        }
-        while (this.linesQueue.length > 0) {
-            const cmd = this.linesQueue.shift();
-            this.serial.bufSend(new Uint8Array([cmd]), 100);
-        }
 
         // Step 1: start game message
         if (this.isFirstGame()) {
@@ -466,12 +457,11 @@ class OnlineTetris {
         this.serial.bufSendHex("02", 70);
         this.serial.bufSendHex("20", 70);
 
-        // Start game loop when buffer finishes sending all commands
-        this.serial.onBufferComplete = () => {
-            console.log("Game start sequence complete, starting game loop");
+        // Wait 2 seconds and then start game
+        setTimeout(() => {
             this.setState(this.StateInGame);
             this.startGameTimer();
-        };
+        }, 2000);
     }
 
     gbGameUpdate(gb) {
