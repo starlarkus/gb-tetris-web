@@ -190,6 +190,12 @@ class Serial {
         this.send_active = true;
         if (this.buffer.length === 0) {
             this.send_active = false;
+            // Call completion callback if set
+            if (this.onBufferComplete) {
+                const callback = this.onBufferComplete;
+                this.onBufferComplete = null;  // Clear it
+                callback();
+            }
             return;
         }
         var element = this.buffer.shift();
