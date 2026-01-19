@@ -46,7 +46,6 @@ class OnlineTetris {
         this.winLoseQueue = [];  // Higher priority - win/lose command sequences
         this.linesQueue = [];    // Lower priority - incoming lines from opponent
         this.gameLoopActive = false;
-        this.pendingGameStart = null;  // Set when waiting for clean transition to next game
 
         this.init();
     }
@@ -414,37 +413,11 @@ class OnlineTetris {
     gbGameStart(gb) {
         console.log("Got game start.");
 
-        // Don't stop the loop yet - let it drain the queues first
-        // Set a flag so we know to transition after queues are empty
-        this.pendingGameStart = gb;
-
-        // If game loop isn't running (e.g., first game), start new game directly
-        if (!this.gameLoopActive) {
-            this._startCleanTransition();
-        }
-        // Otherwise, the game loop will call _startCleanTransition when queues are empty
-    }
-
-    _startCleanTransition() {
-        const gb = this.pendingGameStart;
-        if (!gb) return;
-
-        this.pendingGameStart = null;
-        this.gameLoopActive = false;
+        // Clear any leftover commands from previous game
         this.winLoseQueue = [];
         this.linesQueue = [];
+        this.gameLoopActive = false;
 
-        // Clear serial buffer and start new game
-        console.log("Starting clean transition to new game");
-        this.serial.clearBuffer();
-
-        // Small delay for any in-flight operations, then start
-        setTimeout(() => {
-            this._startGameSequence(gb);
-        }, 100);
-    }
-
-    _startGameSequence(gb) {
         // Step 1: start game message
         if (this.isFirstGame()) {
             console.log('is first game');
@@ -507,7 +480,6 @@ class OnlineTetris {
     gbWin(gb) {
         console.log("WIN! - queuing win sequence");
         // Queue the win sequence: AA (bar full), 02x3 (polls), 43 (final screen)
-        // Loop continues running and sends these at regular intervals
         this.winLoseQueue.push(0xAA, 0x02, 0x02, 0x02, 0x43);
         this.setState(this.StateFinished);
     }
@@ -515,7 +487,6 @@ class OnlineTetris {
     gbLose(gb) {
         console.log("LOSE! - queuing lose sequence");
         // Queue the lose sequence: 77 (opponent reached 30), 02x3 (polls), 43 (final screen)
-        // Loop continues running and sends these at regular intervals
         this.winLoseQueue.push(0x77, 0x02, 0x02, 0x02, 0x43);
         this.setState(this.StateFinished);
     }
@@ -557,12 +528,6 @@ class OnlineTetris {
                 byteToSend = this.linesQueue.shift();
                 console.log("Sending from linesQueue:", byteToSend.toString(16));
             } else {
-                // Queues are empty - check if we're waiting to start a new game
-                if (this.pendingGameStart) {
-                    console.log("Queues empty, transitioning to new game");
-                    this._startCleanTransition();
-                    return; // Exit the loop
-                }
                 // Default: send opponent's max height
                 var heights = [0].concat(this.gb.getOtherUsers().map(u => u.height || 0));
                 byteToSend = Math.max(...heights);
@@ -600,11 +565,7 @@ class OnlineTetris {
                         this.winLoseQueue.push(0x43);
                     }
                 }
-                // Continue the game loop - it keeps running until next game starts
-                // (gbGameStart will set gameLoopActive = false and clear everything)
-                if (this.gameLoopActive) {
-                    this.startGameTimer();
-                }
+                this.startGameTimer();
             });
         }, 100);
     }
