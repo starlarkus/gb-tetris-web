@@ -15,3 +15,7 @@ WebUSB requires HTTPS. For local development, `localhost` is allowed without HTT
 ## Configuration
 
 WebSocket server settings are in `js/gbwebsocket.js`:
+
+## Troubleshooting
+- Currently when refreshing the web page most of the time the pico/usb device needs to be reset. Unplugging or pressing reset on the USB adapter should acomplish this
+- If on linux you may need to edit Udev rules. See here https://stackoverflow.com/questions/30983221/chrome-app-fails-to-open-usb-device
