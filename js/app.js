@@ -416,7 +416,7 @@ class OnlineTetris {
         // Clear any leftover commands from previous game
         this.winLoseQueue = [];
         this.linesQueue = [];
-        this.gameLoopActive = false;
+        this.gameLoopActive = false; // Kill any running loop from previous game
 
         // Step 1: start game message
         if (this.isFirstGame()) {
@@ -460,6 +460,7 @@ class OnlineTetris {
         // Wait 2 seconds and then start game
         setTimeout(() => {
             this.setState(this.StateInGame);
+            this.gameLoopActive = true;
             this.startGameTimer();
         }, 2000);
     }
@@ -511,7 +512,6 @@ class OnlineTetris {
     }
 
     startGameTimer() {
-        this.gameLoopActive = true;
         setTimeout(() => {
             // Stop the loop if game ended or state changed
             if (!this.gameLoopActive) {
@@ -535,6 +535,7 @@ class OnlineTetris {
 
             this.serial.send(new Uint8Array([byteToSend]));
             this.serial.read(64).then(result => {
+                if (!this.gameLoopActive) return;
                 var data = result.data.buffer;
                 // Note: data.length is intentionally used (undefined for ArrayBuffer)
                 // to match React behavior - ensures we always process the first byte
@@ -542,7 +543,7 @@ class OnlineTetris {
                     console.log("Data too long");
                     console.log(data.length);
                     // Ignore old data in buffer
-                    this.startGameTimer();
+                    if (this.gameLoopActive) this.startGameTimer();
                 } else {
                     var value = (new Uint8Array(data))[0];
                     if (value < 20) {
@@ -552,12 +553,10 @@ class OnlineTetris {
                         this.gb.sendLines(value);
                     } else if (value === 0x77) { // we won by reaching 30 lines
                         console.log("We reached 30 lines - WIN!");
-                        this.gameLoopActive = false;
                         this.setState(this.StateFinished);
                         this.gb.sendReached30Lines();
                     } else if (value === 0xaa) { // we lost...
                         console.log("We topped out - LOSE!");
-                        this.gameLoopActive = false;
                         this.setState(this.StateFinished);
                         this.gb.sendDead();
                     } else if (value === 0xFF) { // screen is filled after loss
@@ -565,7 +564,7 @@ class OnlineTetris {
                         this.winLoseQueue.push(0x43);
                     }
                 }
-                this.startGameTimer();
+                if (this.gameLoopActive) this.startGameTimer();
             });
         }, 100);
     }
