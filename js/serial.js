@@ -92,6 +92,11 @@ class Serial {
                 this.device = device;
                 return dev.open();
             }).then(() => {
+                console.log("Resetting device to clear stale state...");
+                // Verify reset is available (some browsers/platforms might implement it differently)
+                if (device.reset) return device.reset();
+                return Promise.resolve();
+            }).then(() => {
                 console.log("Selecting configuration");
                 return device.selectConfiguration(1);
             }).then(() => {
