@@ -94,11 +94,9 @@ class Serial {
             }).then(() => {
                 console.log("Resetting device to clear stale state...");
                 if (device.reset) {
-                    try {
-                        return device.reset();
-                    } catch (e) {
-                        console.warn("Device reset failed:", e);
-                    }
+                    return device.reset().catch(e => {
+                        console.warn("Device reset failed, continuing anyway:", e);
+                    });
                 }
                 return Promise.resolve();
             }).then(() => {
