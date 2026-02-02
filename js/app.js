@@ -428,6 +428,7 @@ class OnlineTetris {
         this.winLoseQueue = [];
         this.gameLoopActive = false;
         this.gameStarting = true; // Block lines during game start sequence
+        this.height = 0; // Reset height for new game
 
         // Helper function to send game start sequence
         const sendGameStartSequence = () => {
