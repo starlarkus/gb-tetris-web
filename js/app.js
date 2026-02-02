@@ -46,6 +46,7 @@ class OnlineTetris {
         this.winLoseQueue = [];
         this.gameLoopActive = false;
         this.gameStarting = false; // True during the 2-second game start sequence
+        this.gameStartedAt = 0; // Timestamp when game loop actually started
 
         this.init();
     }
@@ -480,6 +481,7 @@ class OnlineTetris {
             setTimeout(() => {
                 this.setState(this.StateInGame);
                 this.gameLoopActive = true;
+                this.gameStartedAt = Date.now(); // Track when game started
                 this.startGameTimer();
 
                 // Wait an additional 2 seconds before accepting lines/heights
@@ -615,9 +617,15 @@ class OnlineTetris {
                         this.setState(this.StateFinished);
                         this.gb.sendReached30Lines();
                     } else if (value === 0xaa) { // we lost...
-                        console.log("We topped out - LOSE!");
-                        this.setState(this.StateFinished);
-                        this.gb.sendDead();
+                        // Ignore topped-out signal in first 3 seconds (may be leftover from previous game)
+                        const timeSinceStart = Date.now() - this.gameStartedAt;
+                        if (timeSinceStart < 3000) {
+                            console.log("Ignoring topped out - game just started (" + timeSinceStart + "ms ago)");
+                        } else {
+                            console.log("We topped out - LOSE!");
+                            this.setState(this.StateFinished);
+                            this.gb.sendDead();
+                        }
                     } else if (value === 0xFF) { // screen is filled after loss
                         // Queue the final screen command instead of using buffer directly
                         this.winLoseQueue.push(0x43);
