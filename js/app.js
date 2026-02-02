@@ -45,6 +45,7 @@ class OnlineTetris {
         // Queue for win/lose commands and 0x43 screen-fill
         this.winLoseQueue = [];
         this.gameLoopActive = false;
+        this.gameStarting = false; // True during the 2-second game start sequence
 
         this.init();
     }
@@ -420,14 +421,20 @@ class OnlineTetris {
     gbGameStart(gb) {
         console.log("Got game start.");
 
+        // Store whether a game loop was running (for subsequent rounds)
+        const wasLoopRunning = this.gameLoopActive;
+
         // Clear any leftover commands and stop running loop
         this.winLoseQueue = [];
-        this.gameLoopActive = false; // Kill any running loop from previous game
+        this.gameLoopActive = false;
+        this.gameStarting = true; // Block lines during game start sequence
 
-        // Wait for current game loop iteration to complete before sending game start
-        setTimeout(() => {
-            // Also clear the serial buffer to ensure clean start
-            this.serial.clearBuffer();
+        // Helper function to send game start sequence
+        const sendGameStartSequence = () => {
+            // Clear buffer on subsequent games
+            if (wasLoopRunning) {
+                this.serial.clearBuffer();
+            }
 
             // Step 1: start game message
             if (this.isFirstGame()) {
@@ -473,8 +480,22 @@ class OnlineTetris {
                 this.setState(this.StateInGame);
                 this.gameLoopActive = true;
                 this.startGameTimer();
+
+                // Wait an additional 1.5 seconds before accepting lines
+                setTimeout(() => {
+                    this.gameStarting = false;
+                    console.log("Game start complete, now accepting lines");
+                }, 1500);
             }, 2000);
-        }, 400); // Give time for any pending send/read to complete
+        };
+
+        // If game loop was running, wait for it to stop before sending
+        // Otherwise (first game), start immediately like React
+        if (wasLoopRunning) {
+            setTimeout(sendGameStartSequence, 400);
+        } else {
+            sendGameStartSequence();
+        }
     }
 
     gbGameUpdate(gb) {
@@ -486,10 +507,10 @@ class OnlineTetris {
     }
 
     gbLines(gb, lines) {
-        // Only process lines if game is actually running
+        // Only process lines if game is actually running and not starting
         // This prevents lines from interfering with game start sequence
-        if (this.currentState !== this.StateInGame) {
-            console.log("Ignoring lines - game not in progress");
+        if (this.currentState !== this.StateInGame || this.gameStarting) {
+            console.log("Ignoring lines - game not in progress or starting");
             return;
         }
         console.log("lines");
