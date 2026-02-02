@@ -42,11 +42,6 @@ class OnlineTetris {
         this.serial = null;
         this.gb = null;
 
-        // Priority queues for Game Boy communication (checked each loop iteration)
-        this.winLoseQueue = [];  // Higher priority - win/lose command sequences
-        this.linesQueue = [];    // Lower priority - incoming lines from opponent
-        this.gameLoopActive = false;
-
         this.init();
     }
 
@@ -205,10 +200,18 @@ class OnlineTetris {
         document.getElementById('finished-game-code').textContent = this.gameCode;
         this.renderPlayers('finished-players', this.users);
 
-        // Only host can start next game
+        // Only host can start next game, with 5 second delay
         if (this.isAdmin) {
-            document.getElementById('finished-admin-controls').style.display = 'block';
-            document.getElementById('finished-waiting').style.display = 'none';
+            // Initially hide the button
+            document.getElementById('finished-admin-controls').style.display = 'none';
+            document.getElementById('finished-waiting').textContent = 'Please wait...';
+            document.getElementById('finished-waiting').style.display = 'block';
+
+            // Show button after 5 seconds to let Game Boys stabilize
+            setTimeout(() => {
+                document.getElementById('finished-admin-controls').style.display = 'block';
+                document.getElementById('finished-waiting').style.display = 'none';
+            }, 5000);
         } else {
             document.getElementById('finished-admin-controls').style.display = 'none';
             document.getElementById('finished-waiting').style.display = 'block';
@@ -413,11 +416,6 @@ class OnlineTetris {
     gbGameStart(gb) {
         console.log("Got game start.");
 
-        // Clear any leftover commands from previous game
-        this.winLoseQueue = [];
-        this.linesQueue = [];
-        this.gameLoopActive = false; // Kill any running loop from previous game
-
         // Step 1: start game message
         if (this.isFirstGame()) {
             console.log('is first game');
@@ -457,10 +455,9 @@ class OnlineTetris {
         this.serial.bufSendHex("02", 70);
         this.serial.bufSendHex("20", 70);
 
-        // Wait 2 seconds and then start game
+        // Wait 2 seconds and then start game timer
         setTimeout(() => {
             this.setState(this.StateInGame);
-            this.gameLoopActive = true;
             this.startGameTimer();
         }, 2000);
     }
@@ -474,21 +471,27 @@ class OnlineTetris {
     }
 
     gbLines(gb, lines) {
-        console.log("lines - adding to queue:", lines.toString(16));
-        this.linesQueue.push(lines);
+        console.log("lines");
+        this.serial.bufSend(new Uint8Array([lines]), 10);
     }
 
     gbWin(gb) {
-        console.log("WIN! - queuing win sequence");
-        // Queue the win sequence: AA (bar full), 02x3 (polls), 43 (final screen)
-        this.winLoseQueue.push(0xAA, 0x02, 0x02, 0x02, 0x43);
+        console.log("WIN!");
+        this.serial.bufSendHex("AA", 50); // aa indicates BAR FULL
+        this.serial.bufSendHex("02", 50); // finish
+        this.serial.bufSendHex("02", 50); // finish
+        this.serial.bufSendHex("02", 50); // finish
+        this.serial.bufSendHex("43", 50); // go to final screen
         this.setState(this.StateFinished);
     }
 
     gbLose(gb) {
-        console.log("LOSE! - queuing lose sequence");
-        // Queue the lose sequence: 77 (opponent reached 30), 02x3 (polls), 43 (final screen)
-        this.winLoseQueue.push(0x77, 0x02, 0x02, 0x02, 0x43);
+        console.log("LOSE!");
+        this.serial.bufSendHex("77", 50); // 77 indicates other player has reached 30 lines
+        this.serial.bufSendHex("02", 50); // finish
+        this.serial.bufSendHex("02", 50); // finish
+        this.serial.bufSendHex("02", 50); // finish
+        this.serial.bufSendHex("43", 50); // go to final screen
         this.setState(this.StateFinished);
     }
 
@@ -513,37 +516,14 @@ class OnlineTetris {
 
     startGameTimer() {
         setTimeout(() => {
-            // Stop the loop if game ended or state changed
-            if (!this.gameLoopActive) {
-                console.log("Game loop stopped (gameLoopActive=false)");
-                return;
-            }
-
-            // Determine what byte to send - priority: winLose > lines > opponentHeight
-            let byteToSend;
-            if (this.winLoseQueue.length > 0) {
-                byteToSend = this.winLoseQueue.shift();
-                console.log("Sending from winLoseQueue:", byteToSend.toString(16));
-            } else if (this.linesQueue.length > 0) {
-                byteToSend = this.linesQueue.shift();
-                console.log("Sending from linesQueue:", byteToSend.toString(16));
-            } else {
-                // Default: send opponent's max height
-                var heights = [0].concat(this.gb.getOtherUsers().map(u => u.height || 0));
-                byteToSend = Math.max(...heights);
-            }
-
-            this.serial.send(new Uint8Array([byteToSend]));
+            this.serial.bufSendHex("02", 10); // fixed height
             this.serial.read(64).then(result => {
-                if (!this.gameLoopActive) return;
                 var data = result.data.buffer;
-                // Note: data.length is intentionally used (undefined for ArrayBuffer)
-                // to match React behavior - ensures we always process the first byte
                 if (data.length > 1) {
                     console.log("Data too long");
                     console.log(data.length);
-                    // Ignore old data in buffer
-                    if (this.gameLoopActive) this.startGameTimer();
+                    // We ignore if we still have old data in the buffer.
+                    this.startGameTimer();
                 } else {
                     var value = (new Uint8Array(data))[0];
                     if (value < 20) {
@@ -552,19 +532,16 @@ class OnlineTetris {
                         console.log("Sending lines!", value.toString(16));
                         this.gb.sendLines(value);
                     } else if (value === 0x77) { // we won by reaching 30 lines
-                        console.log("We reached 30 lines - WIN!");
                         this.setState(this.StateFinished);
                         this.gb.sendReached30Lines();
                     } else if (value === 0xaa) { // we lost...
-                        console.log("We topped out - LOSE!");
                         this.setState(this.StateFinished);
                         this.gb.sendDead();
                     } else if (value === 0xFF) { // screen is filled after loss
-                        // Queue the final screen command instead of using buffer directly
-                        this.winLoseQueue.push(0x43);
+                        this.serial.bufSendHex("43", 10);
                     }
                 }
-                if (this.gameLoopActive) this.startGameTimer();
+                this.startGameTimer();
             });
         }, 100);
     }
