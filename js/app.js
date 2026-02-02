@@ -424,51 +424,57 @@ class OnlineTetris {
         this.winLoseQueue = [];
         this.gameLoopActive = false; // Kill any running loop from previous game
 
-        // Step 1: start game message
-        if (this.isFirstGame()) {
-            console.log('is first game');
-            this.serial.bufSendHex("60", 150);
-            this.serial.bufSendHex("29", 4);
-        } else {
-            console.log('is not first game');
-            // begin communication again
-            this.serial.bufSendHex("60", 70);
-            this.serial.bufSendHex("02", 70);
-            this.serial.bufSendHex("02", 70);
-            this.serial.bufSendHex("02", 70);
-            this.serial.bufSendHex("79", 330);
-            // send start
-            this.serial.bufSendHex("60", 150);
-            this.serial.bufSendHex("29", 70);
-        }
-
-        console.log("Sending initial garbage", gb.garbage);
-        // Step 3: send initial garbage
-        for (var i = 0; i < gb.garbage.length; i++) {
-            this.serial.bufSend(new Uint8Array([gb.garbage[i]]), 4);
-        }
-
-        // Step 4: send master again
-        this.serial.bufSendHex("29", 8);
-        console.log("Sending tiles");
-        // Step 5: send tiles
-        for (var i = 0; i < gb.tiles.length; i++) {
-            this.serial.bufSend(new Uint8Array([gb.tiles[i]]), 4);
-        }
-
-        // Step 6: and go
-        this.serial.bufSendHex("30", 70);
-        this.serial.bufSendHex("00", 70);
-        this.serial.bufSendHex("02", 70);
-        this.serial.bufSendHex("02", 70);
-        this.serial.bufSendHex("20", 70);
-
-        // Wait 2 seconds and then start game
+        // Wait for current game loop iteration to complete before sending game start
         setTimeout(() => {
-            this.setState(this.StateInGame);
-            this.gameLoopActive = true;
-            this.startGameTimer();
-        }, 2000);
+            // Also clear the serial buffer to ensure clean start
+            this.serial.clearBuffer();
+
+            // Step 1: start game message
+            if (this.isFirstGame()) {
+                console.log('is first game');
+                this.serial.bufSendHex("60", 150);
+                this.serial.bufSendHex("29", 4);
+            } else {
+                console.log('is not first game');
+                // begin communication again
+                this.serial.bufSendHex("60", 70);
+                this.serial.bufSendHex("02", 70);
+                this.serial.bufSendHex("02", 70);
+                this.serial.bufSendHex("02", 70);
+                this.serial.bufSendHex("79", 330);
+                // send start
+                this.serial.bufSendHex("60", 150);
+                this.serial.bufSendHex("29", 70);
+            }
+
+            console.log("Sending initial garbage", gb.garbage);
+            // Step 3: send initial garbage
+            for (var i = 0; i < gb.garbage.length; i++) {
+                this.serial.bufSend(new Uint8Array([gb.garbage[i]]), 4);
+            }
+
+            // Step 4: send master again
+            this.serial.bufSendHex("29", 8);
+            console.log("Sending tiles");
+            // Step 5: send tiles
+            for (var i = 0; i < gb.tiles.length; i++) {
+                this.serial.bufSend(new Uint8Array([gb.tiles[i]]), 4);
+            }
+
+            // Step 6: and go
+            this.serial.bufSendHex("30", 70);
+            this.serial.bufSendHex("00", 70);
+            this.serial.bufSendHex("02", 70);
+            this.serial.bufSendHex("02", 70);
+            this.serial.bufSendHex("20", 70);
+
+            // Wait 2 seconds and then start game
+            setTimeout(() => {
+                this.setState(this.StateInGame);
+                this.gameLoopActive = true;
+                this.startGameTimer();
+            }, 2000);
+        }, 200); // Give time for any pending send/read to complete
     }
 
     gbGameUpdate(gb) {
