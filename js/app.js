@@ -398,6 +398,13 @@ class OnlineTetris {
         this.gameCode = gb.game_name;
         this.users = gb.users;
 
+        // If game is starting, reset heights to 0 (server might have stale data)
+        if (this.gameStarting) {
+            for (var user of this.users) {
+                user.height = 0;
+            }
+        }
+
         // Check if game ended (status 2 = finished)
         // This handles the case where we didn't receive an explicit win/lose message
         if (gb.game_status === gb.GAME_STATE_FINISHED && this.currentState === this.StateInGame) {
@@ -439,6 +446,9 @@ class OnlineTetris {
         // Switch to in-game UI immediately
         this.setState(this.StateInGame);
         this.updateInGameUI();
+
+        // Tell server our height is 0 so other players see us at 0
+        this.gb.sendHeight(0);
 
         // Helper function to send game start sequence
         const sendGameStartSequence = () => {
