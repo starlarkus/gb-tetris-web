@@ -474,7 +474,7 @@ class OnlineTetris {
                 this.gameLoopActive = true;
                 this.startGameTimer();
             }, 2000);
-        }, 200); // Give time for any pending send/read to complete
+        }, 400); // Give time for any pending send/read to complete
     }
 
     gbGameUpdate(gb) {
@@ -492,21 +492,31 @@ class OnlineTetris {
 
     gbWin(gb) {
         console.log("WIN!");
-        this.serial.bufSendHex("AA", 50); // aa indicates BAR FULL
-        this.serial.bufSendHex("02", 50); // finish
-        this.serial.bufSendHex("02", 50); // finish
-        this.serial.bufSendHex("02", 50); // finish
-        this.serial.bufSendHex("43", 50); // go to final screen
+        // Stop game loop and clear buffer before sending win sequence
+        this.gameLoopActive = false;
+        setTimeout(() => {
+            this.serial.clearBuffer();
+            this.serial.bufSendHex("AA", 50); // aa indicates BAR FULL
+            this.serial.bufSendHex("02", 50); // finish
+            this.serial.bufSendHex("02", 50); // finish
+            this.serial.bufSendHex("02", 50); // finish
+            this.serial.bufSendHex("43", 50); // go to final screen
+        }, 200);
         this.setState(this.StateFinished);
     }
 
     gbLose(gb) {
         console.log("LOSE!");
-        this.serial.bufSendHex("77", 50); // 77 indicates other player has reached 30 lines
-        this.serial.bufSendHex("02", 50); // finish
-        this.serial.bufSendHex("02", 50); // finish
-        this.serial.bufSendHex("02", 50); // finish
-        this.serial.bufSendHex("43", 50); // go to final screen
+        // Stop game loop and clear buffer before sending lose sequence
+        this.gameLoopActive = false;
+        setTimeout(() => {
+            this.serial.clearBuffer();
+            this.serial.bufSendHex("77", 50); // 77 indicates other player has reached 30 lines
+            this.serial.bufSendHex("02", 50); // finish
+            this.serial.bufSendHex("02", 50); // finish
+            this.serial.bufSendHex("02", 50); // finish
+            this.serial.bufSendHex("43", 50); // go to final screen
+        }, 200);
         this.setState(this.StateFinished);
     }
 
