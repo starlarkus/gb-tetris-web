@@ -43,9 +43,11 @@ class OnlineTetris {
         this.gb = null;
 
         // Priority queues for Game Boy communication (checked each loop iteration)
-        this.winLoseQueue = [];  // Higher priority - win/lose command sequences
-        this.linesQueue = [];    // Lower priority - incoming lines from opponent
-        this.gameLoopActive = false;
+        // Priority order: gameStartQueue > winLoseQueue > linesQueue > default height polling
+        this.gameStartQueue = [];  // Highest priority - game initialization sequence
+        this.winLoseQueue = [];    // High priority - win/lose command sequences
+        this.linesQueue = [];      // Lower priority - incoming lines from opponent
+        this.gameLoopStarted = false;  // True once the loop has been started (runs forever)
 
         this.init();
     }
@@ -205,10 +207,18 @@ class OnlineTetris {
         document.getElementById('finished-game-code').textContent = this.gameCode;
         this.renderPlayers('finished-players', this.users);
 
-        // Only host can start next game
+        // Only host can start next game, with 5 second delay
         if (this.isAdmin) {
-            document.getElementById('finished-admin-controls').style.display = 'block';
-            document.getElementById('finished-waiting').style.display = 'none';
+            // Initially hide the button
+            document.getElementById('finished-admin-controls').style.display = 'none';
+            document.getElementById('finished-waiting').textContent = 'Please wait...';
+            document.getElementById('finished-waiting').style.display = 'block';
+
+            // Show button after 5 seconds
+            setTimeout(() => {
+                document.getElementById('finished-admin-controls').style.display = 'block';
+                document.getElementById('finished-waiting').style.display = 'none';
+            }, 5000);
         } else {
             document.getElementById('finished-admin-controls').style.display = 'none';
             document.getElementById('finished-waiting').style.display = 'block';
@@ -414,55 +424,57 @@ class OnlineTetris {
         console.log("Got game start.");
 
         // Clear any leftover commands from previous game
+        this.gameStartQueue = [];
         this.winLoseQueue = [];
         this.linesQueue = [];
-        this.gameLoopActive = false; // Kill any running loop from previous game
 
-        // Step 1: start game message
+        // Queue game start sequence
         if (this.isFirstGame()) {
             console.log('is first game');
-            this.serial.bufSendHex("60", 150);
-            this.serial.bufSendHex("29", 4);
+            // First game: simple start sequence
+            this.gameStartQueue.push({ byte: 0x60, delay: 150 });
+            this.gameStartQueue.push({ byte: 0x29, delay: 4 });
         } else {
             console.log('is not first game');
-            // begin communication again
-            this.serial.bufSendHex("60", 70);
-            this.serial.bufSendHex("02", 70);
-            this.serial.bufSendHex("02", 70);
-            this.serial.bufSendHex("02", 70);
-            this.serial.bufSendHex("79", 330);
-            // send start
-            this.serial.bufSendHex("60", 150);
-            this.serial.bufSendHex("29", 70);
+            // Not first game: resume communication sequence
+            this.gameStartQueue.push({ byte: 0x60, delay: 70 });
+            this.gameStartQueue.push({ byte: 0x02, delay: 70 });
+            this.gameStartQueue.push({ byte: 0x02, delay: 70 });
+            this.gameStartQueue.push({ byte: 0x02, delay: 70 });
+            this.gameStartQueue.push({ byte: 0x79, delay: 330 });
+            this.gameStartQueue.push({ byte: 0x60, delay: 150 });
+            this.gameStartQueue.push({ byte: 0x29, delay: 70 });
         }
 
-        console.log("Sending initial garbage", gb.garbage);
-        // Step 3: send initial garbage
+        console.log("Queuing initial garbage", gb.garbage);
+        // Queue initial garbage
         for (var i = 0; i < gb.garbage.length; i++) {
-            this.serial.bufSend(new Uint8Array([gb.garbage[i]]), 4);
+            this.gameStartQueue.push({ byte: gb.garbage[i], delay: 4 });
         }
 
-        // Step 4: send master again
-        this.serial.bufSendHex("29", 8);
-        console.log("Sending tiles");
-        // Step 5: send tiles
+        // Queue master again
+        this.gameStartQueue.push({ byte: 0x29, delay: 8 });
+
+        console.log("Queuing tiles");
+        // Queue tiles
         for (var i = 0; i < gb.tiles.length; i++) {
-            this.serial.bufSend(new Uint8Array([gb.tiles[i]]), 4);
+            this.gameStartQueue.push({ byte: gb.tiles[i], delay: 4 });
         }
 
-        // Step 6: and go
-        this.serial.bufSendHex("30", 70);
-        this.serial.bufSendHex("00", 70);
-        this.serial.bufSendHex("02", 70);
-        this.serial.bufSendHex("02", 70);
-        this.serial.bufSendHex("20", 70);
+        // Queue final start sequence
+        this.gameStartQueue.push({ byte: 0x30, delay: 70 });
+        this.gameStartQueue.push({ byte: 0x00, delay: 70 });
+        this.gameStartQueue.push({ byte: 0x02, delay: 70 });
+        this.gameStartQueue.push({ byte: 0x02, delay: 70 });
+        this.gameStartQueue.push({ byte: 0x20, delay: 70 });
+        // Mark end of start sequence with special marker
+        this.gameStartQueue.push({ byte: null, delay: 2000, action: 'startGame' });
 
-        // Wait 2 seconds and then start game
-        setTimeout(() => {
-            this.setState(this.StateInGame);
-            this.gameLoopActive = true;
+        // Start the game loop if not already running
+        if (!this.gameLoopStarted) {
+            this.gameLoopStarted = true;
             this.startGameTimer();
-        }, 2000);
+        }
     }
 
     gbGameUpdate(gb) {
@@ -512,13 +524,32 @@ class OnlineTetris {
     }
 
     startGameTimer() {
-        setTimeout(() => {
-            // Stop the loop if game ended or state changed
-            if (!this.gameLoopActive) {
-                console.log("Game loop stopped (gameLoopActive=false)");
+        // Check if we have a game start sequence item with a delay
+        if (this.gameStartQueue.length > 0) {
+            const item = this.gameStartQueue.shift();
+
+            // Special action marker
+            if (item.action === 'startGame') {
+                // Transition to in-game state after the delay
+                setTimeout(() => {
+                    this.setState(this.StateInGame);
+                    this.startGameTimer();
+                }, item.delay);
                 return;
             }
 
+            // Send the byte and schedule next iteration
+            this.serial.send(new Uint8Array([item.byte]));
+            this.serial.read(64).then(() => {
+                setTimeout(() => {
+                    this.startGameTimer();
+                }, item.delay);
+            });
+            return;
+        }
+
+        // Normal game loop - runs forever
+        setTimeout(() => {
             // Determine what byte to send - priority: winLose > lines > opponentHeight
             let byteToSend;
             if (this.winLoseQueue.length > 0) {
@@ -528,14 +559,12 @@ class OnlineTetris {
                 byteToSend = this.linesQueue.shift();
                 console.log("Sending from linesQueue:", byteToSend.toString(16));
             } else {
-                // Default: send opponent's max height
-                var heights = [0].concat(this.gb.getOtherUsers().map(u => u.height || 0));
-                byteToSend = Math.max(...heights);
+                // Default: send 0x02 for polling (matches React exactly)
+                byteToSend = 0x02;
             }
 
             this.serial.send(new Uint8Array([byteToSend]));
             this.serial.read(64).then(result => {
-                if (!this.gameLoopActive) return;
                 var data = result.data.buffer;
                 // Note: data.length is intentionally used (undefined for ArrayBuffer)
                 // to match React behavior - ensures we always process the first byte
@@ -543,7 +572,6 @@ class OnlineTetris {
                     console.log("Data too long");
                     console.log(data.length);
                     // Ignore old data in buffer
-                    if (this.gameLoopActive) this.startGameTimer();
                 } else {
                     var value = (new Uint8Array(data))[0];
                     if (value < 20) {
@@ -560,11 +588,12 @@ class OnlineTetris {
                         this.setState(this.StateFinished);
                         this.gb.sendDead();
                     } else if (value === 0xFF) { // screen is filled after loss
-                        // Queue the final screen command instead of using buffer directly
+                        // Queue the final screen command
                         this.winLoseQueue.push(0x43);
                     }
                 }
-                if (this.gameLoopActive) this.startGameTimer();
+                // Always continue the loop
+                this.startGameTimer();
             });
         }, 100);
     }
