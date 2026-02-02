@@ -574,14 +574,17 @@ class OnlineTetris {
                 return;
             }
 
+            // During startup, skip sending anything - just wait
+            if (this.gameStarting) {
+                this.startGameTimer(); // Just schedule next check
+                return;
+            }
+
             // Determine what byte to send - priority: winLose > opponentHeight
             let byteToSend;
             if (this.winLoseQueue.length > 0) {
                 byteToSend = this.winLoseQueue.shift();
                 console.log("Sending from winLoseQueue:", byteToSend.toString(16));
-            } else if (this.gameStarting) {
-                // During startup, send 0x00 as neutral byte (no height data)
-                byteToSend = 0x00;
             } else {
                 // Default: send opponent's max height
                 var heights = [0].concat(this.gb.getOtherUsers().map(u => u.height || 0));
