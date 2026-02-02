@@ -486,6 +486,12 @@ class OnlineTetris {
     }
 
     gbLines(gb, lines) {
+        // Only process lines if game is actually running
+        // This prevents lines from interfering with game start sequence
+        if (this.currentState !== this.StateInGame) {
+            console.log("Ignoring lines - game not in progress");
+            return;
+        }
         console.log("lines");
         this.serial.bufSend(new Uint8Array([lines]), 10);
     }
