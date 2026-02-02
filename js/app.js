@@ -481,11 +481,11 @@ class OnlineTetris {
                 this.gameLoopActive = true;
                 this.startGameTimer();
 
-                // Wait an additional 1.5 seconds before accepting lines
+                // Wait an additional 2 seconds before accepting lines/heights
                 setTimeout(() => {
                     this.gameStarting = false;
                     console.log("Game start complete, now accepting lines");
-                }, 1500);
+                }, 2000);
             }, 2000);
         };
 
@@ -579,6 +579,9 @@ class OnlineTetris {
             if (this.winLoseQueue.length > 0) {
                 byteToSend = this.winLoseQueue.shift();
                 console.log("Sending from winLoseQueue:", byteToSend.toString(16));
+            } else if (this.gameStarting) {
+                // During startup, send 0x00 as neutral byte (no height data)
+                byteToSend = 0x00;
             } else {
                 // Default: send opponent's max height
                 var heights = [0].concat(this.gb.getOtherUsers().map(u => u.height || 0));
