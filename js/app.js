@@ -429,7 +429,16 @@ class OnlineTetris {
         this.winLoseQueue = [];
         this.gameLoopActive = false;
         this.gameStarting = true; // Block lines during game start sequence
-        this.height = 0; // Reset height for new game
+        this.height = 0; // Reset our height for new game
+
+        // Reset all users' heights for new game (prevents stale UI data)
+        for (var user of this.users) {
+            user.height = 0;
+        }
+
+        // Switch to in-game UI immediately
+        this.setState(this.StateInGame);
+        this.updateInGameUI();
 
         // Helper function to send game start sequence
         const sendGameStartSequence = () => {
@@ -479,7 +488,6 @@ class OnlineTetris {
 
             // Wait 2 seconds and then start game
             setTimeout(() => {
-                this.setState(this.StateInGame);
                 this.gameLoopActive = true;
                 this.gameStartedAt = Date.now(); // Track when game started
                 this.startGameTimer();
