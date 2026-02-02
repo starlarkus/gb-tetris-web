@@ -42,9 +42,8 @@ class OnlineTetris {
         this.serial = null;
         this.gb = null;
 
-        // Priority queues for Game Boy communication (checked each loop iteration)
-        this.winLoseQueue = [];  // Higher priority - win/lose command sequences
-        this.linesQueue = [];    // Lower priority - incoming lines from opponent
+        // Queue for win/lose commands and 0x43 screen-fill
+        this.winLoseQueue = [];
         this.gameLoopActive = false;
 
         this.init();
@@ -205,10 +204,18 @@ class OnlineTetris {
         document.getElementById('finished-game-code').textContent = this.gameCode;
         this.renderPlayers('finished-players', this.users);
 
-        // Only host can start next game
+        // Only host can start next game, with 5 second delay
         if (this.isAdmin) {
-            document.getElementById('finished-admin-controls').style.display = 'block';
-            document.getElementById('finished-waiting').style.display = 'none';
+            // Initially hide the button
+            document.getElementById('finished-admin-controls').style.display = 'none';
+            document.getElementById('finished-waiting').textContent = 'Please wait...';
+            document.getElementById('finished-waiting').style.display = 'block';
+
+            // Show button after 5 seconds to let Game Boys stabilize
+            setTimeout(() => {
+                document.getElementById('finished-admin-controls').style.display = 'block';
+                document.getElementById('finished-waiting').style.display = 'none';
+            }, 5000);
         } else {
             document.getElementById('finished-admin-controls').style.display = 'none';
             document.getElementById('finished-waiting').style.display = 'block';
@@ -413,9 +420,8 @@ class OnlineTetris {
     gbGameStart(gb) {
         console.log("Got game start.");
 
-        // Clear any leftover commands from previous game
+        // Clear any leftover commands and stop running loop
         this.winLoseQueue = [];
-        this.linesQueue = [];
         this.gameLoopActive = false; // Kill any running loop from previous game
 
         // Step 1: start game message
@@ -474,21 +480,27 @@ class OnlineTetris {
     }
 
     gbLines(gb, lines) {
-        console.log("lines - adding to queue:", lines.toString(16));
-        this.linesQueue.push(lines);
+        console.log("lines");
+        this.serial.bufSend(new Uint8Array([lines]), 10);
     }
 
     gbWin(gb) {
-        console.log("WIN! - queuing win sequence");
-        // Queue the win sequence: AA (bar full), 02x3 (polls), 43 (final screen)
-        this.winLoseQueue.push(0xAA, 0x02, 0x02, 0x02, 0x43);
+        console.log("WIN!");
+        this.serial.bufSendHex("AA", 50); // aa indicates BAR FULL
+        this.serial.bufSendHex("02", 50); // finish
+        this.serial.bufSendHex("02", 50); // finish
+        this.serial.bufSendHex("02", 50); // finish
+        this.serial.bufSendHex("43", 50); // go to final screen
         this.setState(this.StateFinished);
     }
 
     gbLose(gb) {
-        console.log("LOSE! - queuing lose sequence");
-        // Queue the lose sequence: 77 (opponent reached 30), 02x3 (polls), 43 (final screen)
-        this.winLoseQueue.push(0x77, 0x02, 0x02, 0x02, 0x43);
+        console.log("LOSE!");
+        this.serial.bufSendHex("77", 50); // 77 indicates other player has reached 30 lines
+        this.serial.bufSendHex("02", 50); // finish
+        this.serial.bufSendHex("02", 50); // finish
+        this.serial.bufSendHex("02", 50); // finish
+        this.serial.bufSendHex("43", 50); // go to final screen
         this.setState(this.StateFinished);
     }
 
@@ -519,14 +531,11 @@ class OnlineTetris {
                 return;
             }
 
-            // Determine what byte to send - priority: winLose > lines > opponentHeight
+            // Determine what byte to send - priority: winLose > opponentHeight
             let byteToSend;
             if (this.winLoseQueue.length > 0) {
                 byteToSend = this.winLoseQueue.shift();
                 console.log("Sending from winLoseQueue:", byteToSend.toString(16));
-            } else if (this.linesQueue.length > 0) {
-                byteToSend = this.linesQueue.shift();
-                console.log("Sending from linesQueue:", byteToSend.toString(16));
             } else {
                 // Default: send opponent's max height
                 var heights = [0].concat(this.gb.getOtherUsers().map(u => u.height || 0));
