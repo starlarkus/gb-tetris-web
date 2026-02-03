@@ -4,7 +4,7 @@
  */
 
 // WebSocket configuration - update these as needed
-const WEBSOCKET_HOST = 'tetrisserver.gblink.io';
+const WEBSOCKET_HOST = 'testtetrisserver.gblink.io';
 const WEBSOCKET_PORT = 443;
 
 // Note: fromHexString is already defined in serial.js which loads first
