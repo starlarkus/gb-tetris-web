@@ -78,6 +78,14 @@ class GBWebsocket {
         this.onerror = function (gb, errorMsg) {
             console.log("Error not implemented!", errorMsg)
         }
+
+        this.onmatchfound = function (gb) {
+            console.log("Match found not implemented!")
+        }
+
+        this.onopponentdisconnect = function (gb) {
+            console.log("Opponent disconnect not implemented!")
+        }
         console.log(this.ongameupdate);
 
         this.admin = false;
@@ -177,6 +185,18 @@ class GBWebsocket {
         return new GBWebsocket(`wss://${WEBSOCKET_HOST}:${WEBSOCKET_PORT}/join/` + code, name)
     }
 
+    static findMatch(name) {
+        var gb = new GBWebsocket(`wss://${WEBSOCKET_HOST}:${WEBSOCKET_PORT}/matchmake`, name);
+        return gb;
+    }
+
+    cancelMatchmaking() {
+        this.ws.send(JSON.stringify({
+            "type": "cancel_matchmaking"
+        }));
+        this.ws.close();
+    }
+
     onMessage(event) {
         console.log("onMessage");
         console.log(event);
@@ -232,6 +252,16 @@ class GBWebsocket {
                 break;
             case "reached_30_lines":
                 this.onlose(this);
+                break;
+            case "match_found":
+                console.log("Match found!", message);
+                this.game_name = message.name;
+                this.users = message.users;
+                this.onmatchfound(this);
+                break;
+            case "opponent_disconnect":
+                console.log("Opponent disconnected!");
+                this.onopponentdisconnect(this);
                 break;
             default:
                 console.log("Unknown message");

@@ -23,6 +23,9 @@ class OnlineTetris {
     StateInGame = "InGame";
     StateFinished = "StateFinished";
     StateError = "StateError";
+    StateModeSelect = "ModeSelect";
+    StateMatchmaking = "Matchmaking";
+    StateOpponentDisconnect = "OpponentDisconnect";
 
     // Player states (sync with server)
     STATE_ALIVE = 0;
@@ -39,6 +42,7 @@ class OnlineTetris {
         this.difficulty = 0;
         this.uuid = "";
         this.isAdmin = false;
+        this.isMatchmaking = false;
         this.serial = null;
         this.gb = null;
 
@@ -115,6 +119,17 @@ class OnlineTetris {
 
         // Finished screen - next game button
         document.getElementById('btn-finished-next').addEventListener('click', () => this.handleStartGame());
+
+        // Mode selection buttons
+        document.getElementById('btn-find-match').addEventListener('click', () => this.handleFindMatch());
+        document.getElementById('btn-private-lobby').addEventListener('click', () => this.handlePrivateLobby());
+
+        // Matchmaking buttons
+        document.getElementById('btn-cancel-matchmaking').addEventListener('click', () => this.handleCancelMatchmaking());
+
+        // Opponent disconnect buttons
+        document.getElementById('btn-rematch').addEventListener('click', () => this.handleRematch());
+        document.getElementById('btn-back-to-menu').addEventListener('click', () => this.handleBackToMenu());
     }
 
     // Hide all screens
@@ -170,6 +185,15 @@ class OnlineTetris {
                 break;
             case this.StateError:
                 this.showScreen('screen-error');
+                break;
+            case this.StateModeSelect:
+                this.showScreen('screen-mode-select');
+                break;
+            case this.StateMatchmaking:
+                this.showScreen('screen-matchmaking');
+                break;
+            case this.StateOpponentDisconnect:
+                this.showScreen('screen-opponent-disconnect');
                 break;
             default:
                 console.error("Invalid state:", this.currentState);
@@ -321,7 +345,61 @@ class OnlineTetris {
     handleMusicSelected() {
         this.serial.sendHex("50");
         this.serial.read(64);
+        // If coming from rematch flow, go directly to matchmaking
+        if (this.isMatchmaking) {
+            this.handleFindMatch();
+        } else {
+            this.setState(this.StateModeSelect);
+        }
+    }
+
+    // Mode selection handlers
+    handleFindMatch() {
+        console.log("Find Match clicked");
+        this.isMatchmaking = true;
+        this.name = document.getElementById('username')?.value || this.generateName();
+        this.setState(this.StateMatchmaking);
+        this.gb = GBWebsocket.findMatch(this.name);
+        this.setGbCallbacks();
+    }
+
+    handlePrivateLobby() {
+        console.log("Private Lobby clicked");
+        this.isMatchmaking = false;
         this.setState(this.StateSelectHandicap);
+    }
+
+    handleCancelMatchmaking() {
+        console.log("Cancel matchmaking");
+        if (this.gb) {
+            this.gb.cancelMatchmaking();
+            this.gb = null;
+        }
+        this.setState(this.StateModeSelect);
+    }
+
+    handleRematch() {
+        console.log("Rematch - reinitializing Tetris connection");
+        // Player has restarted Tetris, need to re-establish connection
+        if (this.gb) {
+            this.gb.ws.close();
+            this.gb = null;
+        }
+        this.isMatchmaking = true; // Remember we want matchmaking after music
+        this.setState(this.StateConnectingTetris);
+        this.attemptTetrisConnection();
+    }
+
+    handleBackToMenu() {
+        console.log("Back to menu - reinitializing Tetris connection");
+        // Player has restarted Tetris, need to re-establish connection
+        if (this.gb) {
+            this.gb.ws.close();
+            this.gb = null;
+        }
+        this.isMatchmaking = false;
+        this.setState(this.StateConnectingTetris);
+        this.attemptTetrisConnection();
     }
 
     // Handicap timer (not heavily used but keeping for compatibility)
@@ -381,6 +459,8 @@ class OnlineTetris {
         this.gb.onwin = this.gbWin.bind(this);
         this.gb.onlose = this.gbLose.bind(this);
         this.gb.onerror = this.gbError.bind(this);
+        this.gb.onmatchfound = this.gbMatchFound.bind(this);
+        this.gb.onopponentdisconnect = this.gbOpponentDisconnect.bind(this);
     }
 
     // WebSocket callbacks
@@ -424,6 +504,40 @@ class OnlineTetris {
         console.error("Game error:", errorMsg);
         document.getElementById('error-message').textContent = errorMsg;
         this.setState(this.StateError);
+    }
+
+    gbMatchFound(gb) {
+        console.log("Match found!");
+        console.log(gb.users);
+        this.gameCode = gb.game_name;
+        this.users = gb.users;
+        this.isAdmin = gb.admin;
+        // Go straight to in-game - matchmaking auto-starts the game
+        // The game will start via gbGameStart callback
+        this.setState(this.StateLobby);
+    }
+
+    gbOpponentDisconnect(gb) {
+        console.log("Opponent disconnected!");
+        // If we're in game, stop the game loop and send win sequence
+        if (this.currentState === this.StateInGame) {
+            this.gameLoopActive = false;
+            setTimeout(() => {
+                this.serial.clearBuffer();
+                this.serial.bufSendHex("AA", 50); // Win - opponent bar full
+                this.serial.bufSendHex("02", 50);
+                this.serial.bufSendHex("02", 50);
+                this.serial.bufSendHex("02", 50);
+                this.serial.bufSendHex("43", 50); // Go to final screen
+            }, 200);
+        }
+        // Show opponent disconnect screen (only for matchmaking games)
+        if (this.isMatchmaking) {
+            this.setState(this.StateOpponentDisconnect);
+        } else {
+            // For private lobbies, just go to finished state
+            this.setState(this.StateFinished);
+        }
     }
 
     gbGameStart(gb) {
