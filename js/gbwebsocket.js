@@ -28,7 +28,8 @@ class GBWebsocket {
     // Needs to be in sync with server!!!
     GAME_STATE_LOBBY = 0
     GAME_STATE_RUNNING = 1
-    GAME_STATE_FINISHED = 2
+    GAME_STATE_BETWEEN = 2
+    GAME_STATE_FINISHED = 3
     GAME_STATE_ERROR = 9998
     GAME_STATE_NONE = 9999
 
@@ -85,6 +86,14 @@ class GBWebsocket {
 
         this.onopponentdisconnect = function (gb) {
             console.log("Opponent disconnect not implemented!")
+        }
+
+        this.onplayerready = function (gb, uuid) {
+            console.log("Player ready not implemented!")
+        }
+
+        this.oncountdownstarted = function (gb, seconds) {
+            console.log("Countdown started not implemented!")
         }
         console.log(this.ongameupdate);
 
@@ -154,6 +163,10 @@ class GBWebsocket {
         }))
     }
 
+    sendReadyNext() {
+        this.ws.send(JSON.stringify({ "type": "ready_next" }));
+    }
+
     sendPresetRng(presetRng) {
         var presetRngJson;
         try {
@@ -208,7 +221,7 @@ class GBWebsocket {
             case "game_info":
                 console.log("New game info", message);
                 this.game_name = message.name;
-                this.game_status = message.state;
+                this.game_status = message.status;
                 this.users = message.users;
                 this.oninfoupdate(this);
                 break;
@@ -262,6 +275,14 @@ class GBWebsocket {
             case "opponent_disconnect":
                 console.log("Opponent disconnected!");
                 this.onopponentdisconnect(this);
+                break;
+            case "player_ready":
+                console.log("Player ready!", message.uuid);
+                this.onplayerready(this, message.uuid);
+                break;
+            case "countdown_started":
+                console.log("Countdown started!", message.seconds);
+                this.oncountdownstarted(this, message.seconds);
                 break;
             default:
                 console.log("Unknown message");
