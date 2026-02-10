@@ -64,8 +64,20 @@ class OnlineTetris {
             return;
         }
 
-        // Generate random username
-        document.getElementById('username').value = this.generateName();
+        // Load saved username or generate a random one
+        var savedName = localStorage.getItem('tetris_username');
+        document.getElementById('username').value = savedName || this.generateName();
+
+        // Save username when changed; regenerate random name if blanked out
+        document.getElementById('username').addEventListener('change', () => {
+            var val = document.getElementById('username').value.trim();
+            if (val) {
+                localStorage.setItem('tetris_username', val);
+            } else {
+                localStorage.removeItem('tetris_username');
+                document.getElementById('username').value = this.generateName();
+            }
+        });
 
         // Bind event listeners
         this.bindEvents();
@@ -135,6 +147,13 @@ class OnlineTetris {
         // Opponent disconnect buttons
         document.getElementById('btn-rematch').addEventListener('click', () => this.handleRematch());
         document.getElementById('btn-back-to-menu').addEventListener('click', () => this.handleBackToMenu());
+
+        // Leave lobby buttons (lobby and finished screens)
+        document.getElementById('btn-leave-lobby-pre').addEventListener('click', () => this.handleLeaveLobby());
+        document.getElementById('btn-leave-lobby').addEventListener('click', () => this.handleLeaveLobby());
+
+        // Reconnect Game Boy button (mode select screen)
+        document.getElementById('btn-reinit-gameboy').addEventListener('click', () => this.handleReinitGameboy());
     }
 
     // Hide all screens
@@ -241,6 +260,8 @@ class OnlineTetris {
             clearInterval(this.countdownInterval);
             this.countdownInterval = null;
         }
+
+        document.getElementById('btn-leave-lobby').style.display = 'inline-block';
 
         if (this.isMatchmaking) {
             // Matchmaking: both players get ready-up controls
@@ -421,6 +442,24 @@ class OnlineTetris {
             this.gb = null;
         }
         this.isMatchmaking = true; // Remember we want matchmaking after music
+        this.setState(this.StateConnectingTetris);
+        this.attemptTetrisConnection();
+    }
+
+    handleLeaveLobby() {
+        console.log("Leaving lobby");
+        if (this.gb) {
+            this.gb._closedByUs = true;
+            this.gb.ws.close();
+            this.gb = null;
+        }
+        this.gameLoopActive = false;
+        this.setState(this.StateModeSelect);
+    }
+
+    handleReinitGameboy() {
+        console.log("Reconnecting Game Boy");
+        this.hasPlayedBefore = false;
         this.setState(this.StateConnectingTetris);
         this.attemptTetrisConnection();
     }

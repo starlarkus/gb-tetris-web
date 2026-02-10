@@ -58,7 +58,7 @@
           <p>Connect your Game Boy with the USB to Game Link adapter and click "connect".</p>
           <button id="btn-connect" class="btn btn-lg btn-secondary">Connect</button>
           <br />
-          <small>Test Version: 1.1.5</small>
+          <small>Test Version: 1.1.6</small>
         </div>
 
         <!-- Screen: Connecting -->
@@ -124,6 +124,9 @@
               </div>
             </div>
           </div>
+          <hr />
+          <button id="btn-reinit-gameboy" class="btn btn-sm btn-secondary">Reconnect Game Boy</button>
+          <p><small>Use this if you restarted your Game Boy</small></p>
         </div>
 
         <!-- Screen: Matchmaking (Finding Opponent) -->
@@ -209,6 +212,8 @@
           <div id="lobby-waiting">
             <p>Please wait for the lobby leader to start the game!</p>
           </div>
+          <hr />
+          <button id="btn-leave-lobby-pre" class="btn btn-sm btn-secondary">Leave Lobby</button>
         </div>
 
         <!-- Screen: Starting Game -->
@@ -242,6 +247,8 @@
             <p id="finished-countdown" style="display:none;"></p>
             <p id="finished-ready-status"></p>
           </div>
+          <hr />
+          <button id="btn-leave-lobby" class="btn btn-sm btn-secondary" style="display:none;">Leave Lobby</button>
         </div>
 
         <!-- Screen: Error -->
