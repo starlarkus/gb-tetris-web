@@ -58,7 +58,7 @@
           <p>Connect your Game Boy with the USB to Game Link adapter and click "connect".</p>
           <button id="btn-connect" class="btn btn-lg btn-secondary">Connect</button>
           <br />
-          <small>Test Version: 1.1.6</small>
+          <small>Version: 1.1.7</small>
         </div>
 
         <!-- Screen: Connecting -->
@@ -92,35 +92,15 @@
           <input type="text" id="username" class="form-control username-input" />
           <hr />
           <h2>Select Game Mode</h2>
-          <p class="lead">Play with anyone or create a private lobby!</p>
-          <hr />
           <div class="container">
             <div class="row justify-content-center">
-              <div class="col-6">
-                <div class="card custom-card">
-                  <div class="card-body">
-                    <div class="card-title">
-                      <h4>Find Match</h4>
-                    </div>
-                    <div class="card-text">
-                      <p>Match with random opponent</p>
-                      <button id="btn-find-match" class="btn btn-lg btn-secondary">Find Match</button>
-                    </div>
-                  </div>
-                </div>
+              <div class="col-6 col-sm-5 mb-3">
+                <button id="btn-find-match" class="btn btn-lg btn-secondary btn-block">Find Match</button>
+                <p><small>Play a random opponent</small></p>
               </div>
-              <div class="col-6">
-                <div class="card custom-card">
-                  <div class="card-body">
-                    <div class="card-title">
-                      <h4>Private Lobby</h4>
-                    </div>
-                    <div class="card-text">
-                      <p>Create or join a private game</p>
-                      <button id="btn-private-lobby" class="btn btn-lg btn-secondary">Private Lobby</button>
-                    </div>
-                  </div>
-                </div>
+              <div class="col-6 col-sm-5 mb-3">
+                <button id="btn-private-lobby" class="btn btn-lg btn-secondary btn-block">Private Lobby</button>
+                <p><small>Create or join a private game</small></p>
               </div>
             </div>
           </div>
