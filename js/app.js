@@ -220,6 +220,7 @@ class OnlineTetris {
         if (this.isAdmin) {
             document.getElementById('lobby-admin-controls').style.display = 'block';
             document.getElementById('lobby-waiting').style.display = 'none';
+            document.getElementById('btn-start-game').disabled = this.users.length < 2;
         } else {
             document.getElementById('lobby-admin-controls').style.display = 'none';
             document.getElementById('lobby-waiting').style.display = 'block';
@@ -268,8 +269,11 @@ class OnlineTetris {
                 document.getElementById('finished-waiting').style.display = 'block';
 
                 setTimeout(() => {
-                    document.getElementById('finished-admin-controls').style.display = 'block';
-                    document.getElementById('finished-waiting').style.display = 'none';
+                    if (this.currentState === this.StateFinished) {
+                        document.getElementById('finished-admin-controls').style.display = 'block';
+                        document.getElementById('finished-waiting').style.display = 'none';
+                        document.getElementById('btn-finished-next').disabled = this.users.length < 2;
+                    }
                 }, 5000);
             } else {
                 document.getElementById('finished-admin-controls').style.display = 'none';
