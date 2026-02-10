@@ -56,9 +56,14 @@
           <hr />
           <h4>Connect your Game Boy</h4>
           <p>Connect your Game Boy with the USB to Game Link adapter and click "connect".</p>
+          <div class="btn-group mt-3 mb-3" role="group">
+            <button id="btn-mode-hardware" class="btn btn-secondary active">Real Hardware</button>
+            <button id="btn-mode-emulator" class="btn btn-outline-secondary">BGB Emulator</button>
+          </div>
+          <br />
           <button id="btn-connect" class="btn btn-lg btn-secondary">Connect</button>
           <br />
-          <small>Version: 1.1.8</small>
+          <small>Version: 1.2.0</small>
         </div>
 
         <!-- Screen: Connecting -->
@@ -257,6 +262,7 @@
 
   <!-- Scripts -->
   <script src="js/serial.js"></script>
+  <script src="js/websocket-serial.js"></script>
   <script src="js/gbwebsocket.js"></script>
   <script src="js/app.js"></script>
 </body>

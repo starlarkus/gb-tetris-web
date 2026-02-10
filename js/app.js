@@ -53,17 +53,12 @@ class OnlineTetris {
         this.gameStartedAt = 0; // Timestamp when game loop actually started
         this.countdownInterval = null; // Interval for matchmaking countdown display
         this.hasPlayedBefore = false; // Tracks if Game Boy has played a game (survives reconnects)
+        this.useEmulator = false; // True when using BGB emulator via WebSocket bridge
 
         this.init();
     }
 
     init() {
-        // Check for WebUSB support
-        if (!navigator.usb) {
-            this.showScreen('screen-no-webusb');
-            return;
-        }
-
         // Load saved username or generate a random one
         var savedName = localStorage.getItem('tetris_username');
         document.getElementById('username').value = savedName || this.generateName();
@@ -154,6 +149,18 @@ class OnlineTetris {
 
         // Reconnect Game Boy button (mode select screen)
         document.getElementById('btn-reinit-gameboy').addEventListener('click', () => this.handleReinitGameboy());
+
+        // Mode toggle (Real Hardware / BGB Emulator)
+        document.getElementById('btn-mode-hardware').addEventListener('click', () => {
+            this.useEmulator = false;
+            document.getElementById('btn-mode-hardware').className = 'btn btn-secondary active';
+            document.getElementById('btn-mode-emulator').className = 'btn btn-outline-secondary';
+        });
+        document.getElementById('btn-mode-emulator').addEventListener('click', () => {
+            this.useEmulator = true;
+            document.getElementById('btn-mode-emulator').className = 'btn btn-secondary active';
+            document.getElementById('btn-mode-hardware').className = 'btn btn-outline-secondary';
+        });
     }
 
     // Hide all screens
@@ -338,7 +345,15 @@ class OnlineTetris {
 
     // Connection handling
     handleConnectClick() {
-        this.serial = new Serial();
+        if (this.useEmulator) {
+            this.serial = new WebSocketSerial();
+        } else {
+            if (!navigator.usb) {
+                this.showScreen('screen-no-webusb');
+                return;
+            }
+            this.serial = new Serial();
+        }
         this.setState(this.StateConnecting);
 
         this.serial.getDevice().then(() => {
