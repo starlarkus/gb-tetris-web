@@ -52,6 +52,7 @@ class OnlineTetris {
         this.gameStarting = false; // True during the 2-second game start sequence
         this.gameStartedAt = 0; // Timestamp when game loop actually started
         this.countdownInterval = null; // Interval for matchmaking countdown display
+        this.hasPlayedBefore = false; // Tracks if Game Boy has played a game (survives reconnects)
 
         this.init();
     }
@@ -560,24 +561,42 @@ class OnlineTetris {
             clearInterval(this.countdownInterval);
             this.countdownInterval = null;
         }
-        // If we're in game, stop the game loop and send win sequence
+
+        // Close the old WebSocket
+        if (this.gb) {
+            this.gb.ws.close();
+            this.gb = null;
+        }
+
+        if (!this.isMatchmaking) {
+            // Private lobby: just go to finished state
+            this.setState(this.StateFinished);
+            return;
+        }
+
+        // Auto-reconnect for matchmaking
+        const reconnect = () => {
+            this.setState(this.StateMatchmaking);
+            this.gb = GBWebsocket.findMatch(this.name);
+            this.setGbCallbacks();
+        };
+
         if (this.currentState === this.StateInGame) {
+            // Mid-game: stop game loop, send win to Game Boy, wait, then reconnect
             this.gameLoopActive = false;
             setTimeout(() => {
                 this.serial.clearBuffer();
-                this.serial.bufSendHex("AA", 50); // Win - opponent bar full
+                this.serial.bufSendHex("AA", 50);
                 this.serial.bufSendHex("02", 50);
                 this.serial.bufSendHex("02", 50);
                 this.serial.bufSendHex("02", 50);
-                this.serial.bufSendHex("43", 50); // Go to final screen
+                this.serial.bufSendHex("43", 50);
             }, 200);
-        }
-        // Show opponent disconnect screen (only for matchmaking games)
-        if (this.isMatchmaking) {
-            this.setState(this.StateOpponentDisconnect);
+            // Wait 3 seconds for Game Boy to settle on results screen, then reconnect
+            setTimeout(reconnect, 3000);
         } else {
-            // For private lobbies, just go to finished state
-            this.setState(this.StateFinished);
+            // Between rounds or any other state: Game Boy already on results screen
+            reconnect();
         }
     }
 
@@ -589,6 +608,9 @@ class OnlineTetris {
             clearInterval(this.countdownInterval);
             this.countdownInterval = null;
         }
+
+        // Track that Game Boy has played at least one game (survives matchmaking reconnects)
+        this.hasPlayedBefore = true;
 
         // Store whether a game loop was running (for subsequent rounds)
         const wasLoopRunning = this.gameLoopActive;
@@ -731,6 +753,9 @@ class OnlineTetris {
 
     // Game logic
     isFirstGame() {
+        if (this.hasPlayedBefore) {
+            return false;
+        }
         for (var u of this.users) {
             if (u.num_wins > 0) {
                 return false;
