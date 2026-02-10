@@ -412,6 +412,7 @@ class OnlineTetris {
         console.log("Rematch - reinitializing Tetris connection");
         // Player has restarted Tetris, need to re-establish connection
         if (this.gb) {
+            this.gb._closedByUs = true;
             this.gb.ws.close();
             this.gb = null;
         }
@@ -424,6 +425,7 @@ class OnlineTetris {
         console.log("Back to menu - reinitializing Tetris connection");
         // Player has restarted Tetris, need to re-establish connection
         if (this.gb) {
+            this.gb._closedByUs = true;
             this.gb.ws.close();
             this.gb = null;
         }
@@ -499,6 +501,7 @@ class OnlineTetris {
     gbConnected(gb) {
         console.log("We're connected!");
         console.log(gb.users);
+        this._handlingDisconnect = false;
         // For matchmaking, stay on the "Finding Opponent..." screen
         // until match_found arrives with actual game data
         if (this.isMatchmaking) {
@@ -546,6 +549,7 @@ class OnlineTetris {
     gbMatchFound(gb) {
         console.log("Match found!");
         console.log(gb.users);
+        this._handlingDisconnect = false;
         this.gameCode = gb.game_name;
         this.users = gb.users;
         this.isAdmin = gb.admin;
@@ -555,6 +559,9 @@ class OnlineTetris {
     }
 
     gbOpponentDisconnect(gb) {
+        // Guard against being called twice (from opponent_disconnect msg AND onclose)
+        if (this._handlingDisconnect) return;
+        this._handlingDisconnect = true;
         console.log("Opponent disconnected!");
         // Stop game loop FIRST to prevent further WS sends
         this.gameLoopActive = false;
@@ -569,6 +576,7 @@ class OnlineTetris {
 
         // Close the old WebSocket
         if (this.gb) {
+            this.gb._closedByUs = true;
             this.gb.ws.close();
             this.gb = null;
         }

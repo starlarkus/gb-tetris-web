@@ -41,6 +41,16 @@ class GBWebsocket {
             this.onMessage(event);
         }).bind(this);
 
+        this.ws.onclose = (function (event) {
+            console.log("WebSocket closed", event.code, event.reason);
+            // If not a clean close we initiated, treat as opponent disconnect
+            if (!this._closedByUs) {
+                this.onopponentdisconnect(this);
+            }
+        }).bind(this);
+
+        this._closedByUs = false;
+
         this.onconnected = function (gb) {
             console.log("On connected not implemented");
         }
@@ -207,6 +217,7 @@ class GBWebsocket {
         this.ws.send(JSON.stringify({
             "type": "cancel_matchmaking"
         }));
+        this._closedByUs = true;
         this.ws.close();
     }
 
