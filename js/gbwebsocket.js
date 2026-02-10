@@ -4,7 +4,7 @@
  */
 
 // WebSocket configuration - update these as needed
-const WEBSOCKET_HOST = 'tetrisserver.gblink.io';
+const WEBSOCKET_HOST = 'testtetrisserver.gblink.io';
 const WEBSOCKET_PORT = 443;
 
 // Note: fromHexString is already defined in serial.js which loads first
@@ -28,7 +28,8 @@ class GBWebsocket {
     // Needs to be in sync with server!!!
     GAME_STATE_LOBBY = 0
     GAME_STATE_RUNNING = 1
-    GAME_STATE_FINISHED = 2
+    GAME_STATE_BETWEEN = 2
+    GAME_STATE_FINISHED = 3
     GAME_STATE_ERROR = 9998
     GAME_STATE_NONE = 9999
 
@@ -39,6 +40,16 @@ class GBWebsocket {
             console.log(this);
             this.onMessage(event);
         }).bind(this);
+
+        this.ws.onclose = (function (event) {
+            console.log("WebSocket closed", event.code, event.reason);
+            // If not a clean close we initiated, treat as opponent disconnect
+            if (!this._closedByUs) {
+                this.onopponentdisconnect(this);
+            }
+        }).bind(this);
+
+        this._closedByUs = false;
 
         this.onconnected = function (gb) {
             console.log("On connected not implemented");
@@ -77,6 +88,22 @@ class GBWebsocket {
 
         this.onerror = function (gb, errorMsg) {
             console.log("Error not implemented!", errorMsg)
+        }
+
+        this.onmatchfound = function (gb) {
+            console.log("Match found not implemented!")
+        }
+
+        this.onopponentdisconnect = function (gb) {
+            console.log("Opponent disconnect not implemented!")
+        }
+
+        this.onplayerready = function (gb, uuid) {
+            console.log("Player ready not implemented!")
+        }
+
+        this.oncountdownstarted = function (gb, seconds) {
+            console.log("Countdown started not implemented!")
         }
         console.log(this.ongameupdate);
 
@@ -146,6 +173,10 @@ class GBWebsocket {
         }))
     }
 
+    sendReadyNext() {
+        this.ws.send(JSON.stringify({ "type": "ready_next" }));
+    }
+
     sendPresetRng(presetRng) {
         var presetRngJson;
         try {
@@ -177,6 +208,19 @@ class GBWebsocket {
         return new GBWebsocket(`wss://${WEBSOCKET_HOST}:${WEBSOCKET_PORT}/join/` + code, name)
     }
 
+    static findMatch(name) {
+        var gb = new GBWebsocket(`wss://${WEBSOCKET_HOST}:${WEBSOCKET_PORT}/matchmake`, name);
+        return gb;
+    }
+
+    cancelMatchmaking() {
+        this.ws.send(JSON.stringify({
+            "type": "cancel_matchmaking"
+        }));
+        this._closedByUs = true;
+        this.ws.close();
+    }
+
     onMessage(event) {
         console.log("onMessage");
         console.log(event);
@@ -188,8 +232,9 @@ class GBWebsocket {
             case "game_info":
                 console.log("New game info", message);
                 this.game_name = message.name;
-                this.game_status = message.state;
+                this.game_status = message.status;
                 this.users = message.users;
+                this.admin = message.admin_uuid === this.uuid;
                 this.oninfoupdate(this);
                 break;
             case "user_info":
@@ -232,6 +277,24 @@ class GBWebsocket {
                 break;
             case "reached_30_lines":
                 this.onlose(this);
+                break;
+            case "match_found":
+                console.log("Match found!", message);
+                this.game_name = message.name;
+                this.users = message.users;
+                this.onmatchfound(this);
+                break;
+            case "opponent_disconnect":
+                console.log("Opponent disconnected!");
+                this.onopponentdisconnect(this);
+                break;
+            case "player_ready":
+                console.log("Player ready!", message.uuid);
+                this.onplayerready(this, message.uuid);
+                break;
+            case "countdown_started":
+                console.log("Countdown started!", message.seconds);
+                this.oncountdownstarted(this, message.seconds);
                 break;
             default:
                 console.log("Unknown message");

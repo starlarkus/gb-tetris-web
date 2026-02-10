@@ -23,6 +23,9 @@ class OnlineTetris {
     StateInGame = "InGame";
     StateFinished = "StateFinished";
     StateError = "StateError";
+    StateModeSelect = "ModeSelect";
+    StateMatchmaking = "Matchmaking";
+    StateOpponentDisconnect = "OpponentDisconnect";
 
     // Player states (sync with server)
     STATE_ALIVE = 0;
@@ -39,6 +42,7 @@ class OnlineTetris {
         this.difficulty = 0;
         this.uuid = "";
         this.isAdmin = false;
+        this.isMatchmaking = false;
         this.serial = null;
         this.gb = null;
 
@@ -47,6 +51,8 @@ class OnlineTetris {
         this.gameLoopActive = false;
         this.gameStarting = false; // True during the 2-second game start sequence
         this.gameStartedAt = 0; // Timestamp when game loop actually started
+        this.countdownInterval = null; // Interval for matchmaking countdown display
+        this.hasPlayedBefore = false; // Tracks if Game Boy has played a game (survives reconnects)
 
         this.init();
     }
@@ -58,8 +64,20 @@ class OnlineTetris {
             return;
         }
 
-        // Generate random username
-        document.getElementById('username').value = this.generateName();
+        // Load saved username or generate a random one
+        var savedName = localStorage.getItem('tetris_username');
+        document.getElementById('username').value = savedName || this.generateName();
+
+        // Save username when changed; regenerate random name if blanked out
+        document.getElementById('username').addEventListener('change', () => {
+            var val = document.getElementById('username').value.trim();
+            if (val) {
+                localStorage.setItem('tetris_username', val);
+            } else {
+                localStorage.removeItem('tetris_username');
+                document.getElementById('username').value = this.generateName();
+            }
+        });
 
         // Bind event listeners
         this.bindEvents();
@@ -115,6 +133,27 @@ class OnlineTetris {
 
         // Finished screen - next game button
         document.getElementById('btn-finished-next').addEventListener('click', () => this.handleStartGame());
+
+        // Matchmaking ready-up button
+        document.getElementById('btn-ready-next').addEventListener('click', () => this.handleReadyNext());
+
+        // Mode selection buttons
+        document.getElementById('btn-find-match').addEventListener('click', () => this.handleFindMatch());
+        document.getElementById('btn-private-lobby').addEventListener('click', () => this.handlePrivateLobby());
+
+        // Matchmaking buttons
+        document.getElementById('btn-cancel-matchmaking').addEventListener('click', () => this.handleCancelMatchmaking());
+
+        // Opponent disconnect buttons
+        document.getElementById('btn-rematch').addEventListener('click', () => this.handleRematch());
+        document.getElementById('btn-back-to-menu').addEventListener('click', () => this.handleBackToMenu());
+
+        // Leave lobby buttons (lobby and finished screens)
+        document.getElementById('btn-leave-lobby-pre').addEventListener('click', () => this.handleLeaveLobby());
+        document.getElementById('btn-leave-lobby').addEventListener('click', () => this.handleLeaveLobby());
+
+        // Reconnect Game Boy button (mode select screen)
+        document.getElementById('btn-reinit-gameboy').addEventListener('click', () => this.handleReinitGameboy());
     }
 
     // Hide all screens
@@ -171,6 +210,15 @@ class OnlineTetris {
             case this.StateError:
                 this.showScreen('screen-error');
                 break;
+            case this.StateModeSelect:
+                this.showScreen('screen-mode-select');
+                break;
+            case this.StateMatchmaking:
+                this.showScreen('screen-matchmaking');
+                break;
+            case this.StateOpponentDisconnect:
+                this.showScreen('screen-opponent-disconnect');
+                break;
             default:
                 console.error("Invalid state:", this.currentState);
         }
@@ -191,6 +239,7 @@ class OnlineTetris {
         if (this.isAdmin) {
             document.getElementById('lobby-admin-controls').style.display = 'block';
             document.getElementById('lobby-waiting').style.display = 'none';
+            document.getElementById('btn-start-game').disabled = this.users.length < 2;
         } else {
             document.getElementById('lobby-admin-controls').style.display = 'none';
             document.getElementById('lobby-waiting').style.display = 'block';
@@ -206,21 +255,48 @@ class OnlineTetris {
         document.getElementById('finished-game-code').textContent = this.gameCode;
         this.renderPlayers('finished-players', this.users);
 
-        // Only host can start next game, with 5 second delay
-        if (this.isAdmin) {
-            // Initially hide the button
-            document.getElementById('finished-admin-controls').style.display = 'none';
-            document.getElementById('finished-waiting').textContent = 'Please wait...';
-            document.getElementById('finished-waiting').style.display = 'block';
+        // Clear any previous countdown interval
+        if (this.countdownInterval) {
+            clearInterval(this.countdownInterval);
+            this.countdownInterval = null;
+        }
 
-            // Show button after 5 seconds to let Game Boys stabilize
+        document.getElementById('btn-leave-lobby').style.display = 'inline-block';
+
+        if (this.isMatchmaking) {
+            // Matchmaking: both players get ready-up controls
+            document.getElementById('finished-admin-controls').style.display = 'none';
+            document.getElementById('finished-waiting').style.display = 'none';
+            document.getElementById('finished-matchmaking-controls').style.display = 'block';
+
+            // Show greyed out, enable after 5 seconds
+            document.getElementById('btn-ready-next').disabled = true;
+            document.getElementById('btn-ready-next').textContent = 'Start Next Round';
+            document.getElementById('finished-countdown').style.display = 'none';
+            document.getElementById('finished-ready-status').textContent = '';
+
             setTimeout(() => {
-                document.getElementById('finished-admin-controls').style.display = 'block';
-                document.getElementById('finished-waiting').style.display = 'none';
+                if (this.currentState === this.StateFinished) {
+                    document.getElementById('btn-ready-next').disabled = false;
+                }
             }, 5000);
         } else {
-            document.getElementById('finished-admin-controls').style.display = 'none';
-            document.getElementById('finished-waiting').style.display = 'block';
+            // Private lobby: host-only start
+            document.getElementById('finished-matchmaking-controls').style.display = 'none';
+            if (this.isAdmin) {
+                document.getElementById('finished-admin-controls').style.display = 'block';
+                document.getElementById('finished-waiting').style.display = 'none';
+                document.getElementById('btn-finished-next').disabled = true;
+
+                setTimeout(() => {
+                    if (this.currentState === this.StateFinished) {
+                        document.getElementById('btn-finished-next').disabled = this.users.length < 2 ? true : false;
+                    }
+                }, 5000);
+            } else {
+                document.getElementById('finished-admin-controls').style.display = 'none';
+                document.getElementById('finished-waiting').style.display = 'block';
+            }
         }
     }
 
@@ -321,7 +397,81 @@ class OnlineTetris {
     handleMusicSelected() {
         this.serial.sendHex("50");
         this.serial.read(64);
+        // If coming from rematch flow, go directly to matchmaking
+        if (this.isMatchmaking) {
+            this.handleFindMatch();
+        } else {
+            this.setState(this.StateModeSelect);
+        }
+    }
+
+    // Mode selection handlers
+    handleFindMatch() {
+        console.log("Find Match clicked");
+        this.isMatchmaking = true;
+        this.name = document.getElementById('username')?.value || this.generateName();
+        this.setState(this.StateMatchmaking);
+        this.gb = GBWebsocket.findMatch(this.name);
+        this.setGbCallbacks();
+    }
+
+    handlePrivateLobby() {
+        console.log("Private Lobby clicked");
+        this.isMatchmaking = false;
         this.setState(this.StateSelectHandicap);
+    }
+
+    handleCancelMatchmaking() {
+        console.log("Cancel matchmaking");
+        if (this.gb) {
+            this.gb.cancelMatchmaking();
+            this.gb = null;
+        }
+        this.setState(this.StateModeSelect);
+    }
+
+    handleRematch() {
+        console.log("Rematch - reinitializing Tetris connection");
+        // Player has restarted Tetris, need to re-establish connection
+        if (this.gb) {
+            this.gb._closedByUs = true;
+            this.gb.ws.close();
+            this.gb = null;
+        }
+        this.isMatchmaking = true; // Remember we want matchmaking after music
+        this.setState(this.StateConnectingTetris);
+        this.attemptTetrisConnection();
+    }
+
+    handleLeaveLobby() {
+        console.log("Leaving lobby");
+        if (this.gb) {
+            this.gb._closedByUs = true;
+            this.gb.ws.close();
+            this.gb = null;
+        }
+        this.gameLoopActive = false;
+        this.setState(this.StateModeSelect);
+    }
+
+    handleReinitGameboy() {
+        console.log("Reconnecting Game Boy");
+        this.hasPlayedBefore = false;
+        this.setState(this.StateConnectingTetris);
+        this.attemptTetrisConnection();
+    }
+
+    handleBackToMenu() {
+        console.log("Back to menu - reinitializing Tetris connection");
+        // Player has restarted Tetris, need to re-establish connection
+        if (this.gb) {
+            this.gb._closedByUs = true;
+            this.gb.ws.close();
+            this.gb = null;
+        }
+        this.isMatchmaking = false;
+        this.setState(this.StateConnectingTetris);
+        this.attemptTetrisConnection();
     }
 
     // Handicap timer (not heavily used but keeping for compatibility)
@@ -381,12 +531,22 @@ class OnlineTetris {
         this.gb.onwin = this.gbWin.bind(this);
         this.gb.onlose = this.gbLose.bind(this);
         this.gb.onerror = this.gbError.bind(this);
+        this.gb.onmatchfound = this.gbMatchFound.bind(this);
+        this.gb.onopponentdisconnect = this.gbOpponentDisconnect.bind(this);
+        this.gb.onplayerready = this.gbPlayerReady.bind(this);
+        this.gb.oncountdownstarted = this.gbCountdownStarted.bind(this);
     }
 
     // WebSocket callbacks
     gbConnected(gb) {
         console.log("We're connected!");
         console.log(gb.users);
+        this._handlingDisconnect = false;
+        // For matchmaking, stay on the "Finding Opponent..." screen
+        // until match_found arrives with actual game data
+        if (this.isMatchmaking) {
+            return;
+        }
         this.gameCode = gb.game_name;
         this.users = gb.users;
         this.setState(this.StateLobby);
@@ -397,6 +557,7 @@ class OnlineTetris {
         console.log(gb.users);
         this.gameCode = gb.game_name;
         this.users = gb.users;
+        this.isAdmin = gb.admin;
 
         // If game is starting, reset heights to 0 (server might have stale data)
         if (this.gameStarting) {
@@ -426,8 +587,83 @@ class OnlineTetris {
         this.setState(this.StateError);
     }
 
+    gbMatchFound(gb) {
+        console.log("Match found!");
+        console.log(gb.users);
+        this._handlingDisconnect = false;
+        this.gameCode = gb.game_name;
+        this.users = gb.users;
+        this.isAdmin = gb.admin;
+        // Go straight to in-game - matchmaking auto-starts the game
+        // The game will start via gbGameStart callback
+        this.setState(this.StateLobby);
+    }
+
+    gbOpponentDisconnect(gb) {
+        // Guard against being called twice (from opponent_disconnect msg AND onclose)
+        if (this._handlingDisconnect) return;
+        this._handlingDisconnect = true;
+        console.log("Opponent disconnected!");
+        // Stop game loop FIRST to prevent further WS sends
+        this.gameLoopActive = false;
+
+        // Clear any running countdown
+        if (this.countdownInterval) {
+            clearInterval(this.countdownInterval);
+            this.countdownInterval = null;
+        }
+
+        const wasInGame = this.currentState === this.StateInGame;
+
+        // Close the old WebSocket
+        if (this.gb) {
+            this.gb._closedByUs = true;
+            this.gb.ws.close();
+            this.gb = null;
+        }
+
+        if (!this.isMatchmaking) {
+            // Private lobby: just go to finished state
+            this.setState(this.StateFinished);
+            return;
+        }
+
+        // Auto-reconnect for matchmaking
+        const reconnect = () => {
+            this.setState(this.StateMatchmaking);
+            this.gb = GBWebsocket.findMatch(this.name);
+            this.setGbCallbacks();
+        };
+
+        if (wasInGame) {
+            // Mid-game: send win to Game Boy, wait, then reconnect
+            setTimeout(() => {
+                this.serial.clearBuffer();
+                this.serial.bufSendHex("AA", 50);
+                this.serial.bufSendHex("02", 50);
+                this.serial.bufSendHex("02", 50);
+                this.serial.bufSendHex("02", 50);
+                this.serial.bufSendHex("43", 50);
+            }, 200);
+            // Wait 3 seconds for Game Boy to settle on results screen, then reconnect
+            setTimeout(reconnect, 3000);
+        } else {
+            // Between rounds or any other state: Game Boy already on results screen
+            reconnect();
+        }
+    }
+
     gbGameStart(gb) {
         console.log("Got game start.");
+
+        // Clear any running countdown from ready-up
+        if (this.countdownInterval) {
+            clearInterval(this.countdownInterval);
+            this.countdownInterval = null;
+        }
+
+        // Track that Game Boy has played at least one game (survives matchmaking reconnects)
+        this.hasPlayedBefore = true;
 
         // Store whether a game loop was running (for subsequent rounds)
         const wasLoopRunning = this.gameLoopActive;
@@ -570,6 +806,9 @@ class OnlineTetris {
 
     // Game logic
     isFirstGame() {
+        if (this.hasPlayedBefore) {
+            return false;
+        }
         for (var u of this.users) {
             if (u.num_wins > 0) {
                 return false;
@@ -583,7 +822,7 @@ class OnlineTetris {
             console.log("Height increased!");
             console.log(height);
             this.height = height;
-            this.gb.sendHeight(height);
+            if (this.gb) this.gb.sendHeight(height);
         }
     }
 
@@ -606,10 +845,12 @@ class OnlineTetris {
             if (this.winLoseQueue.length > 0) {
                 byteToSend = this.winLoseQueue.shift();
                 console.log("Sending from winLoseQueue:", byteToSend.toString(16));
-            } else {
+            } else if (this.gb) {
                 // Default: send opponent's max height
                 var heights = [0].concat(this.gb.getOtherUsers().map(u => u.height || 0));
                 byteToSend = Math.max(...heights);
+            } else {
+                byteToSend = 0;
             }
 
             this.serial.send(new Uint8Array([byteToSend]));
@@ -629,11 +870,11 @@ class OnlineTetris {
                         this.updateHeight(value);
                     } else if ((value >= 0x80) && (value <= 0x85)) { // lines sent
                         console.log("Sending lines!", value.toString(16));
-                        this.gb.sendLines(value);
+                        if (this.gb) this.gb.sendLines(value);
                     } else if (value === 0x77) { // we won by reaching 30 lines
                         console.log("We reached 30 lines - WIN!");
                         this.setState(this.StateFinished);
-                        this.gb.sendReached30Lines();
+                        if (this.gb) this.gb.sendReached30Lines();
                     } else if (value === 0xaa) { // we lost...
                         // Ignore topped-out signal in first 3 seconds (may be leftover from previous game)
                         const timeSinceStart = Date.now() - this.gameStartedAt;
@@ -642,7 +883,7 @@ class OnlineTetris {
                         } else {
                             console.log("We topped out - LOSE!");
                             this.setState(this.StateFinished);
-                            this.gb.sendDead();
+                            if (this.gb) this.gb.sendDead();
                         }
                     } else if (value === 0xFF) { // screen is filled after loss
                         // Queue the final screen command instead of using buffer directly
@@ -667,6 +908,39 @@ class OnlineTetris {
 
     handleSendPresetRng(presetRng) {
         this.gb.sendPresetRng(presetRng);
+    }
+
+    handleReadyNext() {
+        this.gb.sendReadyNext();
+        document.getElementById('btn-ready-next').disabled = true;
+        document.getElementById('btn-ready-next').textContent = 'Waiting for opponent...';
+    }
+
+    gbPlayerReady(gb, uuid) {
+        var readyUser = this.users.find(u => u.uuid === uuid);
+        var name = readyUser ? readyUser.name : 'A player';
+        document.getElementById('finished-ready-status').textContent = name + ' is ready!';
+    }
+
+    gbCountdownStarted(gb, seconds) {
+        var countdown = seconds;
+        var countdownEl = document.getElementById('finished-countdown');
+        countdownEl.style.display = 'block';
+        countdownEl.textContent = 'Game starting in ' + countdown + 's...';
+
+        if (this.countdownInterval) {
+            clearInterval(this.countdownInterval);
+        }
+        this.countdownInterval = setInterval(() => {
+            countdown--;
+            if (countdown <= 0) {
+                clearInterval(this.countdownInterval);
+                this.countdownInterval = null;
+                countdownEl.textContent = 'Starting...';
+            } else {
+                countdownEl.textContent = 'Game starting in ' + countdown + 's...';
+            }
+        }, 1000);
     }
 }
 

@@ -179,8 +179,9 @@ body {
   font-weight: 700;
   border-color: gray;
   text-align: center;
-  width: 300pt;
-  display: inline;
+  max-width: 300pt;
+  width: 100%;
+  display: inline-block;
 }
 
 .game-code-input {
@@ -195,5 +196,5 @@ body {
 
 .custom-card {
   background-color: #444;
-  height: 194px;
+  height: 100%;
 }

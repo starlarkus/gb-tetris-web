@@ -58,7 +58,7 @@
           <p>Connect your Game Boy with the USB to Game Link adapter and click "connect".</p>
           <button id="btn-connect" class="btn btn-lg btn-secondary">Connect</button>
           <br />
-          <small>Version: 1.0.24</small>
+          <small>Version: 1.1.8</small>
         </div>
 
         <!-- Screen: Connecting -->
@@ -86,11 +86,53 @@
           <button id="btn-music-next" class="btn btn-lg btn-secondary">Next</button>
         </div>
 
-        <!-- Screen: Select Game (Create/Join) -->
-        <div id="screen-select-game" class="screen connect">
+        <!-- Screen: Mode Selection (Find Match / Private Lobby) -->
+        <div id="screen-mode-select" class="screen connect">
           <h2>Select a username:</h2>
           <input type="text" id="username" class="form-control username-input" />
           <hr />
+          <h2>Select Game Mode</h2>
+          <div class="container">
+            <div class="row justify-content-center">
+              <div class="col-6 col-sm-5 mb-3">
+                <button id="btn-find-match" class="btn btn-lg btn-secondary btn-block">Find Match</button>
+                <p><small>Play a random opponent</small></p>
+              </div>
+              <div class="col-6 col-sm-5 mb-3">
+                <button id="btn-private-lobby" class="btn btn-lg btn-secondary btn-block">Private Lobby</button>
+                <p><small>Create or join a private game</small></p>
+              </div>
+            </div>
+          </div>
+          <hr />
+          <button id="btn-reinit-gameboy" class="btn btn-sm btn-secondary">Reconnect Game Boy</button>
+          <p><small>Use this if you restarted your Game Boy</small></p>
+        </div>
+
+        <!-- Screen: Matchmaking (Finding Opponent) -->
+        <div id="screen-matchmaking" class="screen connect">
+          <h2>Finding Opponent...</h2>
+          <p>Please wait while we find you a match!</p>
+          <div class="spinner-border text-light" role="status">
+            <span class="sr-only">Loading...</span>
+          </div>
+          <hr />
+          <button id="btn-cancel-matchmaking" class="btn btn-lg btn-secondary">Cancel</button>
+        </div>
+
+        <!-- Screen: Opponent Disconnected -->
+        <div id="screen-opponent-disconnect" class="screen connect">
+          <h2>Opponent Disconnected</h2>
+          <p>Your opponent has left the game. You win!</p>
+          <hr />
+          <p><strong>Please restart Tetris on your Game Boy before continuing.</strong></p>
+          <h4>Find another match?</h4>
+          <button id="btn-rematch" class="btn btn-lg btn-secondary">Find Match</button>
+          <button id="btn-back-to-menu" class="btn btn-lg btn-secondary">Back to Menu</button>
+        </div>
+
+        <!-- Screen: Select Game (Create/Join) -->
+        <div id="screen-select-game" class="screen connect">
           <div class="container">
             <div class="row">
               <div class="col-6">
@@ -150,6 +192,8 @@
           <div id="lobby-waiting">
             <p>Please wait for the lobby leader to start the game!</p>
           </div>
+          <hr />
+          <button id="btn-leave-lobby-pre" class="btn btn-sm btn-secondary">Leave Lobby</button>
         </div>
 
         <!-- Screen: Starting Game -->
@@ -178,6 +222,13 @@
           <div id="finished-waiting">
             <p>Waiting for host to start next game...</p>
           </div>
+          <div id="finished-matchmaking-controls" style="display:none;">
+            <button id="btn-ready-next" class="btn btn-lg btn-secondary">Start Next Round</button>
+            <p id="finished-countdown" style="display:none;"></p>
+            <p id="finished-ready-status"></p>
+          </div>
+          <hr />
+          <button id="btn-leave-lobby" class="btn btn-sm btn-secondary" style="display:none;">Leave Lobby</button>
         </div>
 
         <!-- Screen: Error -->
