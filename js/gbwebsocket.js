@@ -234,6 +234,7 @@ class GBWebsocket {
                 this.game_name = message.name;
                 this.game_status = message.status;
                 this.users = message.users;
+                this.admin = message.admin_uuid === this.uuid;
                 this.oninfoupdate(this);
                 break;
             case "user_info":

@@ -560,6 +560,7 @@ class OnlineTetris {
         console.log(gb.users);
         this.gameCode = gb.game_name;
         this.users = gb.users;
+        this.isAdmin = gb.admin;
 
         // If game is starting, reset heights to 0 (server might have stale data)
         if (this.gameStarting) {
