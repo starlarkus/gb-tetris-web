@@ -556,11 +556,16 @@ class OnlineTetris {
 
     gbOpponentDisconnect(gb) {
         console.log("Opponent disconnected!");
+        // Stop game loop FIRST to prevent further WS sends
+        this.gameLoopActive = false;
+
         // Clear any running countdown
         if (this.countdownInterval) {
             clearInterval(this.countdownInterval);
             this.countdownInterval = null;
         }
+
+        const wasInGame = this.currentState === this.StateInGame;
 
         // Close the old WebSocket
         if (this.gb) {
@@ -581,9 +586,8 @@ class OnlineTetris {
             this.setGbCallbacks();
         };
 
-        if (this.currentState === this.StateInGame) {
-            // Mid-game: stop game loop, send win to Game Boy, wait, then reconnect
-            this.gameLoopActive = false;
+        if (wasInGame) {
+            // Mid-game: send win to Game Boy, wait, then reconnect
             setTimeout(() => {
                 this.serial.clearBuffer();
                 this.serial.bufSendHex("AA", 50);
@@ -769,7 +773,7 @@ class OnlineTetris {
             console.log("Height increased!");
             console.log(height);
             this.height = height;
-            this.gb.sendHeight(height);
+            if (this.gb) this.gb.sendHeight(height);
         }
     }
 
@@ -792,10 +796,12 @@ class OnlineTetris {
             if (this.winLoseQueue.length > 0) {
                 byteToSend = this.winLoseQueue.shift();
                 console.log("Sending from winLoseQueue:", byteToSend.toString(16));
-            } else {
+            } else if (this.gb) {
                 // Default: send opponent's max height
                 var heights = [0].concat(this.gb.getOtherUsers().map(u => u.height || 0));
                 byteToSend = Math.max(...heights);
+            } else {
+                byteToSend = 0;
             }
 
             this.serial.send(new Uint8Array([byteToSend]));
@@ -815,11 +821,11 @@ class OnlineTetris {
                         this.updateHeight(value);
                     } else if ((value >= 0x80) && (value <= 0x85)) { // lines sent
                         console.log("Sending lines!", value.toString(16));
-                        this.gb.sendLines(value);
+                        if (this.gb) this.gb.sendLines(value);
                     } else if (value === 0x77) { // we won by reaching 30 lines
                         console.log("We reached 30 lines - WIN!");
                         this.setState(this.StateFinished);
-                        this.gb.sendReached30Lines();
+                        if (this.gb) this.gb.sendReached30Lines();
                     } else if (value === 0xaa) { // we lost...
                         // Ignore topped-out signal in first 3 seconds (may be leftover from previous game)
                         const timeSinceStart = Date.now() - this.gameStartedAt;
@@ -828,7 +834,7 @@ class OnlineTetris {
                         } else {
                             console.log("We topped out - LOSE!");
                             this.setState(this.StateFinished);
-                            this.gb.sendDead();
+                            if (this.gb) this.gb.sendDead();
                         }
                     } else if (value === 0xFF) { // screen is filled after loss
                         // Queue the final screen command instead of using buffer directly
