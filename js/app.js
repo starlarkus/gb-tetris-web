@@ -267,33 +267,30 @@ class OnlineTetris {
             // Matchmaking: both players get ready-up controls
             document.getElementById('finished-admin-controls').style.display = 'none';
             document.getElementById('finished-waiting').style.display = 'none';
-            document.getElementById('finished-matchmaking-controls').style.display = 'none';
+            document.getElementById('finished-matchmaking-controls').style.display = 'block';
 
-            // Reset ready-up UI state
-            document.getElementById('btn-ready-next').disabled = false;
+            // Show greyed out, enable after 5 seconds
+            document.getElementById('btn-ready-next').disabled = true;
             document.getElementById('btn-ready-next').textContent = 'Start Next Round';
             document.getElementById('finished-countdown').style.display = 'none';
             document.getElementById('finished-ready-status').textContent = '';
 
-            // Show after 5 seconds to let Game Boys stabilize
             setTimeout(() => {
                 if (this.currentState === this.StateFinished) {
-                    document.getElementById('finished-matchmaking-controls').style.display = 'block';
+                    document.getElementById('btn-ready-next').disabled = false;
                 }
             }, 5000);
         } else {
-            // Private lobby: host-only start (unchanged)
+            // Private lobby: host-only start
             document.getElementById('finished-matchmaking-controls').style.display = 'none';
             if (this.isAdmin) {
-                document.getElementById('finished-admin-controls').style.display = 'none';
-                document.getElementById('finished-waiting').textContent = 'Please wait...';
-                document.getElementById('finished-waiting').style.display = 'block';
+                document.getElementById('finished-admin-controls').style.display = 'block';
+                document.getElementById('finished-waiting').style.display = 'none';
+                document.getElementById('btn-finished-next').disabled = true;
 
                 setTimeout(() => {
                     if (this.currentState === this.StateFinished) {
-                        document.getElementById('finished-admin-controls').style.display = 'block';
-                        document.getElementById('finished-waiting').style.display = 'none';
-                        document.getElementById('btn-finished-next').disabled = this.users.length < 2;
+                        document.getElementById('btn-finished-next').disabled = this.users.length < 2 ? true : false;
                     }
                 }, 5000);
             } else {
