@@ -43,8 +43,8 @@ class WebSocketSerial {
                     const pending = this._pendingRead;
                     this._pendingRead = null;
                     clearTimeout(pending.timer);
-                    // Match the transferIn result format: {data: {buffer: ArrayBuffer}}
-                    pending.resolve({ data: { buffer: event.data } });
+                    // Match the USB transferIn result format: {data: DataView}
+                    pending.resolve({ data: new DataView(event.data) });
                 }
                 // If no pending read, discard the message (unsolicited response)
             };
