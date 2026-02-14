@@ -63,6 +63,17 @@ class WebSocketSerial {
     }
 
     read(num) {
+        // Cancel any existing pending read to prevent orphaned timeout timers.
+        // The music timer calls send()+read() every 100ms fire-and-forget,
+        // so stale reads would pile up and their timers would fire as false
+        // "disconnection" errors.
+        if (this._pendingRead) {
+            clearTimeout(this._pendingRead.timer);
+            // Silently resolve the old read with empty data rather than rejecting,
+            // since the caller (startMusicTimer) ignores the result anyway
+            this._pendingRead.resolve({ data: new DataView(new ArrayBuffer(0)) });
+            this._pendingRead = null;
+        }
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
                 this._pendingRead = null;
