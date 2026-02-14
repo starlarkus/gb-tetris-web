@@ -11,6 +11,7 @@ class WebSocketSerial {
         this.ws = null;
         this.ready = false;
         this._pendingRead = null; // {resolve, reject, timer}
+        this.receiveBuffer = []; // Buffered incoming bytes (matches USB IN endpoint buffering)
     }
 
     async getDevice() {
@@ -39,14 +40,12 @@ class WebSocketSerial {
             };
 
             this.ws.onmessage = (event) => {
-                if (this._pendingRead) {
-                    const pending = this._pendingRead;
-                    this._pendingRead = null;
-                    clearTimeout(pending.timer);
-                    // Match the USB transferIn result format: {data: DataView}
-                    pending.resolve({ data: new DataView(event.data) });
+                // Buffer all incoming bytes (mirrors USB IN endpoint buffering)
+                const incoming = new Uint8Array(event.data);
+                for (let i = 0; i < incoming.length; i++) {
+                    this.receiveBuffer.push(incoming[i]);
                 }
-                // If no pending read, discard the message (unsolicited response)
+                this._tryResolveRead();
             };
         });
     }
@@ -70,7 +69,21 @@ class WebSocketSerial {
                 reject("Cannot connect to BGB Bridge. Please check the bridge is running.");
             }, 2000);
             this._pendingRead = { resolve, reject, timer };
+            // If data is already buffered, resolve immediately
+            this._tryResolveRead();
         });
+    }
+
+    _tryResolveRead() {
+        if (this._pendingRead && this.receiveBuffer.length > 0) {
+            const pending = this._pendingRead;
+            this._pendingRead = null;
+            clearTimeout(pending.timer);
+            // Drain all buffered bytes into a single response (matches USB transferIn)
+            const bytes = new Uint8Array(this.receiveBuffer);
+            this.receiveBuffer = [];
+            pending.resolve({ data: new DataView(bytes.buffer) });
+        }
     }
 
     readHex(num) {
@@ -86,11 +99,12 @@ class WebSocketSerial {
     clearBuffer() {
         this.buffer = [];
         this.send_active = false;
-        // Also clear any pending read
+        // Also clear any pending read and received data
         if (this._pendingRead) {
             clearTimeout(this._pendingRead.timer);
             this._pendingRead = null;
         }
+        this.receiveBuffer = [];
         console.log("Buffer cleared for priority command");
     }
 
