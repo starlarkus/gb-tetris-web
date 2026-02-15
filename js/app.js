@@ -54,6 +54,7 @@ class OnlineTetris {
         this.countdownInterval = null; // Interval for matchmaking countdown display
         this.hasPlayedBefore = false; // Tracks if Game Boy has played a game (survives reconnects)
         this.useEmulator = false; // True when using BGB emulator via WebSocket bridge
+        this._bgbCallbacksSet = false; // Whether bridge event callbacks have been set
 
         this.init();
     }
@@ -343,6 +344,71 @@ class OnlineTetris {
         });
     }
 
+    // Helper to check if we're in BGB bridge mode
+    isBgbMode() {
+        return this.serial instanceof WebSocketSerial;
+    }
+
+    // Set up event callbacks from the BGB bridge
+    _setupBgbCallbacks() {
+        if (this._bgbCallbacksSet) return;
+        this._bgbCallbacksSet = true;
+
+        this.serial.onconnected = () => {
+            console.log("Bridge probe succeeded");
+            this.setState(this.StateSelectMusic);
+            // In BGB mode, bridge handles music timer internally
+            // Just tell the bridge about initial music selection
+            this.serial.setMusic(parseInt(this.music, 16));
+        };
+
+        this.serial.onheight = (value) => {
+            if (this.gameLoopActive && !this.gameStarting) {
+                this.updateHeight(value);
+            }
+        };
+
+        this.serial.onlines = (value) => {
+            if (this.gameLoopActive && !this.gameStarting) {
+                console.log("Bridge: lines signal", value.toString(16));
+                if (this.gb) this.gb.sendLines(value);
+            }
+        };
+
+        this.serial.onwin = () => {
+            if (!this.gameLoopActive) return;
+            // Ignore in first 3 seconds
+            const timeSinceStart = Date.now() - this.gameStartedAt;
+            if (timeSinceStart < 3000) {
+                console.log("Ignoring win - game just started");
+                return;
+            }
+            console.log("Bridge: WIN!");
+            this.gameLoopActive = false;
+            this.setState(this.StateFinished);
+            if (this.gb) this.gb.sendReached30Lines();
+        };
+
+        this.serial.onlose = () => {
+            if (!this.gameLoopActive) return;
+            // Ignore topped-out in first 3 seconds
+            const timeSinceStart = Date.now() - this.gameStartedAt;
+            if (timeSinceStart < 3000) {
+                console.log("Ignoring topped out - game just started");
+                return;
+            }
+            console.log("Bridge: LOSE!");
+            this.gameLoopActive = false;
+            this.setState(this.StateFinished);
+            if (this.gb) this.gb.sendDead();
+        };
+
+        this.serial.onscreenfilled = () => {
+            // Queue the final screen command
+            this.serial.queueCommand(0x43);
+        };
+    }
+
     // Connection handling
     handleConnectClick() {
         if (this.useEmulator) {
@@ -357,9 +423,15 @@ class OnlineTetris {
         this.setState(this.StateConnecting);
 
         this.serial.getDevice().then(() => {
-            console.log("USB connected, updating status.");
+            console.log("Connected, updating status.");
             this.setState(this.StateConnectingTetris);
-            this.attemptTetrisConnection();
+            if (this.isBgbMode()) {
+                this._setupBgbCallbacks();
+                // Tell bridge what game to play, then bridge auto-probes
+                this.serial.setGame("tetris");
+            } else {
+                this.attemptTetrisConnection();
+            }
         }).catch(c => {
             console.log("Connection cancelled or failed");
             this.setState(this.StateConnect);
@@ -393,9 +465,16 @@ class OnlineTetris {
     // Music selection
     setMusic(music) {
         this.music = music;
+        // In BGB mode, tell bridge about the music change
+        if (this.isBgbMode()) {
+            this.serial.setMusic(parseInt(music, 16));
+        }
     }
 
     startMusicTimer() {
+        // In BGB mode, bridge handles music timer internally
+        if (this.isBgbMode()) return;
+
         setTimeout(() => {
             console.log("Sending music");
             if (this.currentState === this.StateSelectMusic) {
@@ -410,8 +489,12 @@ class OnlineTetris {
     }
 
     handleMusicSelected() {
-        this.serial.sendHex("50");
-        this.serial.read(64);
+        if (this.isBgbMode()) {
+            this.serial.confirmMusic();
+        } else {
+            this.serial.sendHex("50");
+            this.serial.read(64);
+        }
         // If coming from rematch flow, go directly to matchmaking
         if (this.isMatchmaking) {
             this.handleFindMatch();
@@ -652,14 +735,22 @@ class OnlineTetris {
 
         if (wasInGame) {
             // Mid-game: send win to Game Boy, wait, then reconnect
-            setTimeout(() => {
-                this.serial.clearBuffer();
-                this.serial.bufSendHex("AA", 50);
-                this.serial.bufSendHex("02", 50);
-                this.serial.bufSendHex("02", 50);
-                this.serial.bufSendHex("02", 50);
-                this.serial.bufSendHex("43", 50);
-            }, 200);
+            if (this.isBgbMode()) {
+                this.serial.queueCommand(0xAA);
+                this.serial.queueCommand(0x02);
+                this.serial.queueCommand(0x02);
+                this.serial.queueCommand(0x02);
+                this.serial.queueCommand(0x43);
+            } else {
+                setTimeout(() => {
+                    this.serial.clearBuffer();
+                    this.serial.bufSendHex("AA", 50);
+                    this.serial.bufSendHex("02", 50);
+                    this.serial.bufSendHex("02", 50);
+                    this.serial.bufSendHex("02", 50);
+                    this.serial.bufSendHex("43", 50);
+                }, 200);
+            }
             // Wait 3 seconds for Game Boy to settle on results screen, then reconnect
             setTimeout(reconnect, 3000);
         } else {
@@ -701,7 +792,27 @@ class OnlineTetris {
         // Tell server our height is 0 so other players see us at 0
         this.gb.sendHeight(0);
 
-        // Helper function to send game start sequence
+        // ── BGB mode: tell bridge to handle game start sequence ──
+        if (this.isBgbMode()) {
+            this.serial.startGame(
+                gb.garbage || [],
+                gb.tiles || [],
+                this.isFirstGame()
+            );
+            // Bridge handles the full start sequence + game loop internally.
+            // Mark game as active after a delay to match WebUSB behavior.
+            setTimeout(() => {
+                this.gameLoopActive = true;
+                this.gameStartedAt = Date.now();
+                setTimeout(() => {
+                    this.gameStarting = false;
+                    console.log("Game start complete, now accepting lines");
+                }, 2000);
+            }, 2000);
+            return;
+        }
+
+        // ── WebUSB mode: send byte sequence directly ──
         const sendGameStartSequence = () => {
             // Clear buffer on subsequent games
             if (wasLoopRunning) {
@@ -786,21 +897,33 @@ class OnlineTetris {
             return;
         }
         console.log("lines");
-        this.serial.bufSend(new Uint8Array([lines]), 10);
+        if (this.isBgbMode()) {
+            this.serial.queueCommand(lines);
+        } else {
+            this.serial.bufSend(new Uint8Array([lines]), 10);
+        }
     }
 
     gbWin(gb) {
         console.log("WIN!");
         // Stop game loop and clear buffer before sending win sequence
         this.gameLoopActive = false;
-        setTimeout(() => {
-            this.serial.clearBuffer();
-            this.serial.bufSendHex("AA", 50); // aa indicates BAR FULL
-            this.serial.bufSendHex("02", 50); // finish
-            this.serial.bufSendHex("02", 50); // finish
-            this.serial.bufSendHex("02", 50); // finish
-            this.serial.bufSendHex("43", 50); // go to final screen
-        }, 200);
+        if (this.isBgbMode()) {
+            this.serial.queueCommand(0xAA);
+            this.serial.queueCommand(0x02);
+            this.serial.queueCommand(0x02);
+            this.serial.queueCommand(0x02);
+            this.serial.queueCommand(0x43);
+        } else {
+            setTimeout(() => {
+                this.serial.clearBuffer();
+                this.serial.bufSendHex("AA", 50); // aa indicates BAR FULL
+                this.serial.bufSendHex("02", 50); // finish
+                this.serial.bufSendHex("02", 50); // finish
+                this.serial.bufSendHex("02", 50); // finish
+                this.serial.bufSendHex("43", 50); // go to final screen
+            }, 200);
+        }
         this.setState(this.StateFinished);
     }
 
@@ -808,14 +931,22 @@ class OnlineTetris {
         console.log("LOSE!");
         // Stop game loop and clear buffer before sending lose sequence
         this.gameLoopActive = false;
-        setTimeout(() => {
-            this.serial.clearBuffer();
-            this.serial.bufSendHex("77", 50); // 77 indicates other player has reached 30 lines
-            this.serial.bufSendHex("02", 50); // finish
-            this.serial.bufSendHex("02", 50); // finish
-            this.serial.bufSendHex("02", 50); // finish
-            this.serial.bufSendHex("43", 50); // go to final screen
-        }, 200);
+        if (this.isBgbMode()) {
+            this.serial.queueCommand(0x77);
+            this.serial.queueCommand(0x02);
+            this.serial.queueCommand(0x02);
+            this.serial.queueCommand(0x02);
+            this.serial.queueCommand(0x43);
+        } else {
+            setTimeout(() => {
+                this.serial.clearBuffer();
+                this.serial.bufSendHex("77", 50); // 77 indicates other player has reached 30 lines
+                this.serial.bufSendHex("02", 50); // finish
+                this.serial.bufSendHex("02", 50); // finish
+                this.serial.bufSendHex("02", 50); // finish
+                this.serial.bufSendHex("43", 50); // go to final screen
+            }, 200);
+        }
         this.setState(this.StateFinished);
     }
 
@@ -842,6 +973,10 @@ class OnlineTetris {
     }
 
     startGameTimer() {
+        // In BGB mode, the bridge runs the game loop internally.
+        // The bridge sends events (height, lines, win, lose) via WebSocket.
+        if (this.isBgbMode()) return;
+
         setTimeout(() => {
             // Stop the loop if game ended or state changed
             if (!this.gameLoopActive) {
@@ -913,7 +1048,11 @@ class OnlineTetris {
     gbHeight() {
         var heights = [0].concat(this.gb.getOtherUsers().map(u => u.height));
         var maxHeight = Math.max(...heights);
-        this.serial.bufSend(new Uint8Array([maxHeight]), 10);
+        if (this.isBgbMode()) {
+            this.serial.setHeight(maxHeight);
+        } else {
+            this.serial.bufSend(new Uint8Array([maxHeight]), 10);
+        }
     }
 
     handleStartGame() {

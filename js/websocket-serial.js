@@ -1,17 +1,27 @@
 /**
  * WebSocket-based serial communication for BGB emulator bridge.
- * Drop-in replacement for the Serial class — same interface, but
- * talks to the bridge over a WebSocket instead of WebUSB.
+ * Sends high-level JSON commands to the bridge, receives game events back.
+ * The bridge handles all BGB byte-level timing internally.
+ *
+ * For app.js to distinguish BGB mode from WebUSB mode, check:
+ *   if (this.serial instanceof WebSocketSerial)
  */
 
 class WebSocketSerial {
     constructor() {
+        // Legacy bufSend support (used by some app.js code paths that also run on WebUSB)
         this.buffer = [];
         this.send_active = false;
         this.ws = null;
         this.ready = false;
-        this._pendingRead = null; // {resolve, reject, timer}
-        this.receiveBuffer = []; // Buffered incoming bytes (matches USB IN endpoint buffering)
+
+        // Event callbacks (set by app.js)
+        this.onconnected = null;    // bridge probe succeeded
+        this.onheight = null;       // height value from Game Boy
+        this.onlines = null;        // lines signal from Game Boy
+        this.onwin = null;          // Game Boy reports win
+        this.onlose = null;         // Game Boy reports lose
+        this.onscreenfilled = null; // Game Boy reports screen filled
     }
 
     async getDevice() {
@@ -21,7 +31,6 @@ class WebSocketSerial {
         return new Promise((resolve, reject) => {
             const url = "ws://localhost:" + port;
             this.ws = new WebSocket(url);
-            this.ws.binaryType = "arraybuffer";
 
             this.ws.onopen = () => {
                 console.log("WebSocket connected to bridge at " + url);
@@ -40,21 +49,90 @@ class WebSocketSerial {
             };
 
             this.ws.onmessage = (event) => {
-                // Buffer all incoming bytes (mirrors USB IN endpoint buffering)
-                const incoming = new Uint8Array(event.data);
-                for (let i = 0; i < incoming.length; i++) {
-                    this.receiveBuffer.push(incoming[i]);
-                }
-                this._tryResolveRead();
+                this._handleMessage(event.data);
             };
         });
     }
 
-    send(data) {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            return Promise.reject(new Error("WebSocket not connected"));
+    _handleMessage(data) {
+        try {
+            const msg = JSON.parse(data);
+            switch (msg.event) {
+                case 'connected':
+                    console.log("Bridge: probe succeeded");
+                    if (this.onconnected) this.onconnected();
+                    break;
+                case 'height':
+                    if (this.onheight) this.onheight(msg.value);
+                    break;
+                case 'lines':
+                    if (this.onlines) this.onlines(msg.value);
+                    break;
+                case 'win':
+                    console.log("Bridge: Game Boy reports WIN");
+                    if (this.onwin) this.onwin();
+                    break;
+                case 'lose':
+                    console.log("Bridge: Game Boy reports LOSE");
+                    if (this.onlose) this.onlose();
+                    break;
+                case 'screen_filled':
+                    console.log("Bridge: screen filled");
+                    if (this.onscreenfilled) this.onscreenfilled();
+                    break;
+                default:
+                    console.log("Bridge: unknown event", msg);
+            }
+        } catch (e) {
+            console.error("Bridge message parse error:", e, data);
         }
-        this.ws.send(data);
+    }
+
+    // ── JSON command senders ──────────────────────────────────────────
+
+    sendCommand(cmd) {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            console.error("WebSocket not connected");
+            return;
+        }
+        this.ws.send(JSON.stringify(cmd));
+    }
+
+    setGame(game) {
+        this.sendCommand({ cmd: "set_game", game: game });
+    }
+
+    setMusic(musicByte) {
+        this.sendCommand({ cmd: "set_music", music: musicByte });
+    }
+
+    confirmMusic() {
+        this.sendCommand({ cmd: "confirm_music" });
+    }
+
+    startGame(garbage, tiles, isFirst) {
+        this.sendCommand({
+            cmd: "start_game",
+            garbage: Array.from(garbage),
+            tiles: Array.from(tiles),
+            is_first: isFirst
+        });
+    }
+
+    setHeight(height) {
+        this.sendCommand({ cmd: "set_height", value: height });
+    }
+
+    queueCommand(value) {
+        this.sendCommand({ cmd: "queue_command", value: value });
+    }
+
+    // ── Legacy interface stubs ────────────────────────────────────────
+    // These exist so app.js code paths that call them don't crash,
+    // but in BGB mode the bridge handles all timing internally.
+
+    send(data) {
+        // No-op in bridge mode; bridge handles exchanges
         return Promise.resolve();
     }
 
@@ -63,87 +141,33 @@ class WebSocketSerial {
     }
 
     read(num) {
-        // Cancel any existing pending read to prevent orphaned timeout timers.
-        // The music timer calls send()+read() every 100ms fire-and-forget,
-        // so stale reads would pile up and their timers would fire as false
-        // "disconnection" errors.
-        if (this._pendingRead) {
-            clearTimeout(this._pendingRead.timer);
-            // Silently resolve the old read with empty data rather than rejecting,
-            // since the caller (startMusicTimer) ignores the result anyway
-            this._pendingRead.resolve({ data: new DataView(new ArrayBuffer(0)) });
-            this._pendingRead = null;
-        }
-        return new Promise((resolve, reject) => {
-            const timer = setTimeout(() => {
-                this._pendingRead = null;
-                reject("Cannot connect to BGB Bridge. Please check the bridge is running.");
-            }, 2000);
-            this._pendingRead = { resolve, reject, timer };
-            // If data is already buffered, resolve immediately
-            this._tryResolveRead();
+        // No-op in bridge mode; events come via callbacks
+        return new Promise((resolve) => {
+            // Return empty data immediately
+            resolve({ data: new DataView(new ArrayBuffer(0)) });
         });
-    }
-
-    _tryResolveRead() {
-        if (this._pendingRead && this.receiveBuffer.length > 0) {
-            const pending = this._pendingRead;
-            this._pendingRead = null;
-            clearTimeout(pending.timer);
-            // Drain all buffered bytes into a single response (matches USB transferIn)
-            const bytes = new Uint8Array(this.receiveBuffer);
-            this.receiveBuffer = [];
-            pending.resolve({ data: new DataView(bytes.buffer) });
-        }
     }
 
     readHex(num) {
-        return new Promise((resolve, reject) => {
-            this.read(num).then(result => {
-                resolve(buf2hex(result.data.buffer));
-            }, error => {
-                reject(error);
-            });
-        });
+        return this.read(num).then(result => buf2hex(result.data.buffer));
     }
 
     clearBuffer() {
         this.buffer = [];
         this.send_active = false;
-        // Also clear any pending read and received data
-        if (this._pendingRead) {
-            clearTimeout(this._pendingRead.timer);
-            this._pendingRead = null;
-        }
-        this.receiveBuffer = [];
-        console.log("Buffer cleared for priority command");
+        console.log("Buffer cleared");
     }
 
     bufSendFunction() {
-        this.send_active = true;
-        if (this.buffer.length === 0) {
-            this.send_active = false;
-            return;
-        }
-        var element = this.buffer.shift();
-        var data = element[0];
-        var delay = element[1];
-        this.send(data).then(() => {
-            setTimeout(() => {
-                this.bufSendFunction();
-            }, delay);
-        });
+        // No-op in bridge mode
+        this.send_active = false;
     }
 
     bufSend(data, delay) {
-        this.buffer.push([data, delay]);
-        if (!this.send_active) {
-            this.bufSendFunction();
-        }
+        // No-op in bridge mode
     }
 
     bufSendHex(str, delay) {
-        var data = fromHexString(str);
-        this.bufSend(data, delay);
+        // No-op in bridge mode
     }
 }
