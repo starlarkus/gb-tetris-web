@@ -13,10 +13,13 @@ function buf2hex(buffer) {
 const toHexString = bytes =>
     bytes.reduce((str, byte) => str + byte.toString(16).padStart(2, '0'), '');
 
-function fwVersionAtLeast(version, minMajor, minMinor, minPatch) {
-    if (!version) return false;
-    const parts = version.split('.').map(Number);
-    const [major = 0, minor = 0, patch = 0] = parts;
+// Check firmware version from USB device descriptor (bcdDevice)
+// Available instantly on the device object — no USB transfers needed
+function fwVersionAtLeast(device, minMajor, minMinor, minPatch) {
+    if (!device) return false;
+    const major = device.deviceVersionMajor || 0;
+    const minor = device.deviceVersionMinor || 0;
+    const patch = device.deviceVersionSubminor || 0;
     if (major !== minMajor) return major > minMajor;
     if (minor !== minMinor) return minor > minMinor;
     return patch >= minPatch;
@@ -62,11 +65,10 @@ class Serial {
     constructor() {
         this.buffer = [];
         this.send_active = false;
-        this.firmwareVersion = null;
     }
 
     async setLed(r, g, b, on = true) {
-        if (!this.ready || !fwVersionAtLeast(this.firmwareVersion, 1, 0, 6)) return false;
+        if (!this.ready || !fwVersionAtLeast(this.device, 1, 0, 6)) return false;
         const packet = buildLedPacket(r, g, b, on);
         await this.device.transferOut(this.epOut, packet);
         try {
@@ -180,38 +182,18 @@ class Serial {
                     'index': this.ifNum
                 })
             }).then(async () => {
-                // Query firmware version via control transfer (request 0x23)
-                // Old firmware stalls cleanly; new firmware responds with "GBLINK:x.x.x"
-                try {
-                    const result = await device.controlTransferIn({
-                        requestType: 'class',
-                        recipient: 'interface',
-                        request: 0x23,
-                        value: 0x00,
-                        index: this.ifNum
-                    }, 64);
-                    if (result.status === 'ok' && result.data && result.data.byteLength > 0) {
-                        const str = new TextDecoder().decode(result.data);
-                        if (str.startsWith('GBLINK:')) {
-                            this.firmwareVersion = str.substring(7);
-                            console.log("Firmware version:", this.firmwareVersion);
-                        }
-                    }
-                } catch (e) {
-                    console.log("No firmware version (old firmware)");
-                }
+                // Check firmware version from USB device descriptor (bcdDevice)
+                const fwVer = `${device.deviceVersionMajor}.${device.deviceVersionMinor}.${device.deviceVersionSubminor}`;
+                console.log("Firmware version (bcdDevice):", fwVer);
 
                 // Switch to 5V mode if firmware supports voltage switching (>= 1.0.6)
-                if (fwVersionAtLeast(this.firmwareVersion, 1, 0, 6)) {
+                if (fwVersionAtLeast(device, 1, 0, 6)) {
                     console.log("Switching to 5V mode for Game Boy");
                     await device.transferOut(this.epOut, VSWITCH_5V_PACKET);
                     // Read ack byte
                     try {
-                        await Promise.race([
-                            device.transferIn(this.epIn, 64),
-                            new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 500))
-                        ]);
-                    } catch (e) { /* ack timeout is non-fatal */ }
+                        await device.transferIn(this.epIn, 64);
+                    } catch (e) { /* ack read is non-fatal */ }
                 }
 
                 console.log("Ready!");
