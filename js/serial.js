@@ -13,10 +13,37 @@ function buf2hex(buffer) {
 const toHexString = bytes =>
     bytes.reduce((str, byte) => str + byte.toString(16).padStart(2, '0'), '');
 
+function fwVersionAtLeast(version, minMajor, minMinor, minPatch) {
+    if (!version) return false;
+    const parts = version.split('.').map(Number);
+    const [major = 0, minor = 0, patch = 0] = parts;
+    if (major !== minMajor) return major > minMajor;
+    if (minor !== minMinor) return minor > minMinor;
+    return patch >= minPatch;
+}
+
+// Voltage switch magic packets (36 bytes: 32-byte prefix + 4-byte command)
+const VSWITCH_PREFIX = new Uint8Array([
+    0xCA, 0xFE, 0xCA, 0xFE, 0xCA, 0xFE, 0xCA, 0xFE,
+    0xCA, 0xFE, 0xCA, 0xFE, 0xCA, 0xFE, 0xCA, 0xFE,
+    0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF,
+    0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF
+]);
+
+function buildVswitchPacket(suffix) {
+    const packet = new Uint8Array(36);
+    packet.set(VSWITCH_PREFIX);
+    packet.set(new TextEncoder().encode(suffix), 32);
+    return packet;
+}
+
+const VSWITCH_5V_PACKET = buildVswitchPacket('V5V0');
+
 class Serial {
     constructor() {
         this.buffer = [];
         this.send_active = false;
+        this.firmwareVersion = null;
     }
 
     static getPorts() {
@@ -120,7 +147,37 @@ class Serial {
                     'value': 0x01,
                     'index': this.ifNum
                 })
-            }).then(() => {
+            }).then(async () => {
+                // Read firmware version string (new firmware sends "GBLINK:x.x.x\n" on connect)
+                try {
+                    const result = await Promise.race([
+                        device.transferIn(this.epIn, 64),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 500))
+                    ]);
+                    if (result.status === 'ok' && result.data && result.data.byteLength > 0) {
+                        const str = new TextDecoder().decode(result.data);
+                        if (str.startsWith('GBLINK:')) {
+                            this.firmwareVersion = str.trim().substring(7);
+                            console.log("Firmware version:", this.firmwareVersion);
+                        }
+                    }
+                } catch (e) {
+                    console.log("No firmware version (old firmware)");
+                }
+
+                // Switch to 5V mode if firmware supports voltage switching (>= 1.0.6)
+                if (fwVersionAtLeast(this.firmwareVersion, 1, 0, 6)) {
+                    console.log("Switching to 5V mode for Game Boy");
+                    await device.transferOut(this.epOut, VSWITCH_5V_PACKET);
+                    // Read ack byte
+                    try {
+                        await Promise.race([
+                            device.transferIn(this.epIn, 64),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 500))
+                        ]);
+                    } catch (e) { /* ack timeout is non-fatal */ }
+                }
+
                 console.log("Ready!");
                 this.ready = true;
                 this.device = device;
