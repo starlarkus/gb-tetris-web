@@ -647,17 +647,33 @@ class OnlineTetris {
 
         const wasInGame = this.currentState === this.StateInGame;
 
-        // Close the old WebSocket
+        if (!this.isMatchmaking) {
+            // Private lobby: if we were mid-game, send win sequence to Game Boy
+            // since we're the last player standing. Don't close the WebSocket yet —
+            // the server sends a "win" message right after "opponent_disconnect"
+            // which gbWin will handle to transition to the finished screen.
+            if (wasInGame) {
+                setTimeout(() => {
+                    this.serial.clearBuffer();
+                    this.serial.bufSendHex("AA", 50);
+                    this.serial.bufSendHex("02", 50);
+                    this.serial.bufSendHex("02", 50);
+                    this.serial.bufSendHex("02", 50);
+                    this.serial.bufSendHex("43", 50);
+                }, 200);
+                // gbWin will fire from the server's "win" message and set StateFinished
+            } else {
+                // Between rounds: Game Boy already on results screen, just go to finished
+                this.setState(this.StateFinished);
+            }
+            return;
+        }
+
+        // Close the old WebSocket (matchmaking only — private lobbies keep it open)
         if (this.gb) {
             this.gb._closedByUs = true;
             this.gb.ws.close();
             this.gb = null;
-        }
-
-        if (!this.isMatchmaking) {
-            // Private lobby: just go to finished state
-            this.setState(this.StateFinished);
-            return;
         }
 
         // Auto-reconnect for matchmaking
@@ -810,16 +826,19 @@ class OnlineTetris {
 
     gbWin(gb) {
         console.log("WIN!");
-        // Stop game loop and clear buffer before sending win sequence
-        this.gameLoopActive = false;
-        setTimeout(() => {
-            this.serial.clearBuffer();
-            this.serial.bufSendHex("AA", 50); // aa indicates BAR FULL
-            this.serial.bufSendHex("02", 50); // finish
-            this.serial.bufSendHex("02", 50); // finish
-            this.serial.bufSendHex("02", 50); // finish
-            this.serial.bufSendHex("43", 50); // go to final screen
-        }, 200);
+        // Only send win sequence if game loop was still active
+        // (gbOpponentDisconnect may have already sent it)
+        if (this.gameLoopActive) {
+            this.gameLoopActive = false;
+            setTimeout(() => {
+                this.serial.clearBuffer();
+                this.serial.bufSendHex("AA", 50); // aa indicates BAR FULL
+                this.serial.bufSendHex("02", 50); // finish
+                this.serial.bufSendHex("02", 50); // finish
+                this.serial.bufSendHex("02", 50); // finish
+                this.serial.bufSendHex("43", 50); // go to final screen
+            }, 200);
+        }
         this.setState(this.StateFinished);
     }
 
