@@ -5,7 +5,7 @@ Web frontend for online Game Boy Tetris multiplayer. Connects to a Game Boy via 
 ## Requirements
 
 - Chrome or Edge browser (for WebUSB support)
-- [GB Link Cable USB adapter](https://github.com/starlarkus/gb-link-firmware-reconfigurable)
+- [GBLink firmware](https://github.com/starlarkus/GBLink-Firmware) or [reconfigurable firmware (legacy)](https://github.com/starlarkus/gb-link-firmware-reconfigurable)
 - Game Boy with Tetris cartridge
 
 ## HTTPS Note
