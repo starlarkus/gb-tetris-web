@@ -58,8 +58,8 @@ class OnlineTetris {
     }
 
     init() {
-        // Check for WebUSB support
-        if (!navigator.usb) {
+        // Need either WebUSB (Chrome/Edge) or WebSerial (Firefox 151+, Chrome, Edge)
+        if (!navigator.usb && !navigator.serial) {
             this.showScreen('screen-no-webusb');
             return;
         }
@@ -94,8 +94,14 @@ class OnlineTetris {
     }
 
     bindEvents() {
-        // Connect button
-        document.getElementById('btn-connect').addEventListener('click', () => this.handleConnectClick());
+        // Connect buttons
+        document.getElementById('btn-connect').addEventListener('click', () => this.handleConnectClick('usb'));
+        const serialBtn = document.getElementById('btn-connect-serial');
+        if (serialBtn) {
+            serialBtn.addEventListener('click', () => this.handleConnectClick('serial'));
+            if (!('serial' in navigator)) serialBtn.disabled = true;
+        }
+        if (!('usb' in navigator)) document.getElementById('btn-connect').disabled = true;
 
         // Music buttons
         document.getElementById('btn-music-a').addEventListener('click', () => this.setMusic(this.SONG_A));
@@ -351,12 +357,12 @@ class OnlineTetris {
     }
 
     // Connection handling
-    handleConnectClick() {
-        this.serial = new Serial();
+    handleConnectClick(kind = 'usb') {
+        this.serial = (kind === 'serial') ? new SerialWS() : new Serial();
         this.setState(this.StateConnecting);
 
         this.serial.getDevice().then(() => {
-            console.log("USB connected, updating status.");
+            console.log(`${kind === 'serial' ? 'Serial' : 'USB'} connected, updating status.`);
             this.setState(this.StateConnectingTetris);
             this.attemptTetrisConnection();
         }).catch(c => {

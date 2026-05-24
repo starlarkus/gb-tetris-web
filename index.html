@@ -56,7 +56,8 @@
           <hr />
           <h4>Connect your Game Boy</h4>
           <p>Connect your Game Boy with the USB to Game Link adapter and click "connect".</p>
-          <button id="btn-connect" class="btn btn-lg btn-secondary">Connect</button>
+          <button id="btn-connect" class="btn btn-lg btn-secondary">Connect (USB)</button>
+          <button id="btn-connect-serial" class="btn btn-lg btn-secondary">Connect (Serial)</button>
           <br />
           <small>Version: 1.2.0</small>
         </div>
@@ -239,9 +240,10 @@
           <h3 id="error-message"></h3>
         </div>
 
-        <!-- Screen: No WebUSB -->
+        <!-- Screen: No WebUSB or WebSerial -->
         <div id="screen-no-webusb" class="screen connect">
-          <h2>Sorry, your browser does not support WebUSB!</h2>
+          <h2>Sorry, your browser supports neither WebUSB nor WebSerial!</h2>
+          <p>Use Chrome/Edge (WebUSB or WebSerial) or Firefox 151+ (WebSerial).</p>
         </div>
 
       </div>
@@ -259,6 +261,7 @@
 
   <!-- Scripts -->
   <script src="js/serial.js"></script>
+  <script src="js/serial_ws.js"></script>
   <script src="js/gbwebsocket.js"></script>
   <script src="js/app.js"></script>
 </body>
