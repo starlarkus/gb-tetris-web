@@ -94,14 +94,17 @@ class OnlineTetris {
     }
 
     bindEvents() {
-        // Connect buttons
-        document.getElementById('btn-connect').addEventListener('click', () => this.handleConnectClick('usb'));
-        const serialBtn = document.getElementById('btn-connect-serial');
-        if (serialBtn) {
-            serialBtn.addEventListener('click', () => this.handleConnectClick('serial'));
-            if (!('serial' in navigator)) serialBtn.disabled = true;
+        // Connect button: prefer WebUSB, fall back to WebSerial.
+        const hasUsb = ('usb' in navigator);
+        const hasSerial = ('serial' in navigator);
+        const transport = hasUsb ? 'usb' : (hasSerial ? 'serial' : null);
+        const connectBtn = document.getElementById('btn-connect');
+        if (transport) {
+            connectBtn.textContent = transport === 'usb' ? 'Connect USB' : 'Connect Serial';
+            connectBtn.addEventListener('click', () => this.handleConnectClick(transport));
+        } else {
+            connectBtn.disabled = true;
         }
-        if (!('usb' in navigator)) document.getElementById('btn-connect').disabled = true;
 
         // Music buttons
         document.getElementById('btn-music-a').addEventListener('click', () => this.setMusic(this.SONG_A));
