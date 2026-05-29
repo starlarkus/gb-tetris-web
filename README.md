@@ -10,7 +10,7 @@ Web frontend for online Game Boy Tetris multiplayer. Connects to a Game Boy via 
 
 ## HTTPS Note
 
-WebUSB requires HTTPS. For local development, `localhost` is allowed without HTTPS but will only allow connections to a ws:// backend server
+WebUSB requires HTTPS. For local development, `localhost` is allowed without HTTPS
 
 ## Configuration
 
