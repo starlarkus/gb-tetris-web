@@ -1,10 +1,10 @@
 # GB-Tetris-Web
 
-Web frontend for online Game Boy Tetris multiplayer. Connects to a Game Boy via WebUSB and to the game server via WebSockets.
+Web frontend for online Game Boy Tetris multiplayer. Connects to a Game Boy via WebUSB or WebSerial and to the game server via WebSockets.
 
 ## Requirements
 
-- Chrome or Edge browser (for WebUSB support)
+- Chrome or Chromium based browser or Firefox 151+
 - [GBLink firmware](https://github.com/starlarkus/GBLink-Firmware) or [reconfigurable firmware (legacy)](https://github.com/starlarkus/gb-link-firmware-reconfigurable)
 - Game Boy with Tetris cartridge
 
