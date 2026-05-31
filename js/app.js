@@ -48,6 +48,12 @@ class OnlineTetris {
 
         // Queue for win/lose commands and 0x43 screen-fill
         this.winLoseQueue = [];
+        // Unified serial pump state. outQueue holds every command byte we need
+        // to clock out to the Game Boy (setup, garbage, tiles, line attacks,
+        // win/lose sequences); each entry is [Uint8Array, delayMs].
+        this.outQueue = [];
+        this.serialActive = false; // pump should keep running
+        this.pumpRunning = false;  // a pump tick chain is currently live
         this.gameLoopActive = false;
         this.gameStarting = false; // True during the 2-second game start sequence
         this.gameStartedAt = 0; // Timestamp when game loop actually started
@@ -376,6 +382,9 @@ class OnlineTetris {
 
     attemptTetrisConnection() {
         console.log("Attempt connection...");
+        // Returning to the menu/handshake: stop the in-game pump so it can't
+        // send concurrently with the menu's own send/read handshake below.
+        this.stopSerialPump();
         this.serial.sendHex("29");
         this.serial.readHex(64).then(result => {
             if (result === "55") {
@@ -474,6 +483,7 @@ class OnlineTetris {
             this.gb = null;
         }
         this.gameLoopActive = false;
+        this.stopSerialPump();
         this.setState(this.StateModeSelect);
     }
 
@@ -663,12 +673,12 @@ class OnlineTetris {
             // which gbWin will handle to transition to the finished screen.
             if (wasInGame) {
                 setTimeout(() => {
-                    this.serial.clearBuffer();
-                    this.serial.bufSendHex("AA", 50);
-                    this.serial.bufSendHex("02", 50);
-                    this.serial.bufSendHex("02", 50);
-                    this.serial.bufSendHex("02", 50);
-                    this.serial.bufSendHex("43", 50);
+                    this.clearOut();
+                    this.enqueueOutHex("AA", 50);
+                    this.enqueueOutHex("02", 50);
+                    this.enqueueOutHex("02", 50);
+                    this.enqueueOutHex("02", 50);
+                    this.enqueueOutHex("43", 50);
                 }, 200);
                 // gbWin will fire from the server's "win" message and set StateFinished
             } else {
@@ -695,12 +705,12 @@ class OnlineTetris {
         if (wasInGame) {
             // Mid-game: send win to Game Boy, show disconnect screen, wait, then reconnect
             setTimeout(() => {
-                this.serial.clearBuffer();
-                this.serial.bufSendHex("AA", 50);
-                this.serial.bufSendHex("02", 50);
-                this.serial.bufSendHex("02", 50);
-                this.serial.bufSendHex("02", 50);
-                this.serial.bufSendHex("43", 50);
+                this.clearOut();
+                this.enqueueOutHex("AA", 50);
+                this.enqueueOutHex("02", 50);
+                this.enqueueOutHex("02", 50);
+                this.enqueueOutHex("02", 50);
+                this.enqueueOutHex("43", 50);
             }, 200);
             // Show the win/disconnect screen, then wait 5 seconds for the
             // Game Boy to fully process the win sequence before reconnecting
@@ -747,49 +757,50 @@ class OnlineTetris {
 
         // Helper function to send game start sequence
         const sendGameStartSequence = () => {
-            // Clear buffer on subsequent games
-            if (wasLoopRunning) {
-                this.serial.clearBuffer();
-            }
+            // Clear any stale queued bytes on subsequent games, then make sure
+            // the pump is running so it drains the setup sequence we enqueue
+            // below (the GB is clocked only while the pump sends).
+            this.clearOut();
+            this.startSerialPump();
 
             // Step 1: start game message
             if (this.isFirstGame()) {
                 console.log('is first game');
-                this.serial.bufSendHex("60", 150);
-                this.serial.bufSendHex("29", 4);
+                this.enqueueOutHex("60", 150);
+                this.enqueueOutHex("29", 4);
             } else {
                 console.log('is not first game');
                 // begin communication again
-                this.serial.bufSendHex("60", 70);
-                this.serial.bufSendHex("02", 70);
-                this.serial.bufSendHex("02", 70);
-                this.serial.bufSendHex("02", 70);
-                this.serial.bufSendHex("79", 330);
+                this.enqueueOutHex("60", 70);
+                this.enqueueOutHex("02", 70);
+                this.enqueueOutHex("02", 70);
+                this.enqueueOutHex("02", 70);
+                this.enqueueOutHex("79", 330);
                 // send start
-                this.serial.bufSendHex("60", 150);
-                this.serial.bufSendHex("29", 70);
+                this.enqueueOutHex("60", 150);
+                this.enqueueOutHex("29", 70);
             }
 
             console.log("Sending initial garbage", gb.garbage);
             // Step 3: send initial garbage
             for (var i = 0; i < gb.garbage.length; i++) {
-                this.serial.bufSend(new Uint8Array([gb.garbage[i]]), 4);
+                this.enqueueOut(new Uint8Array([gb.garbage[i]]), 4);
             }
 
             // Step 4: send master again
-            this.serial.bufSendHex("29", 8);
+            this.enqueueOutHex("29", 8);
             console.log("Sending tiles");
             // Step 5: send tiles
             for (var i = 0; i < gb.tiles.length; i++) {
-                this.serial.bufSend(new Uint8Array([gb.tiles[i]]), 4);
+                this.enqueueOut(new Uint8Array([gb.tiles[i]]), 4);
             }
 
             // Step 6: and go
-            this.serial.bufSendHex("30", 70);
-            this.serial.bufSendHex("00", 70);
-            this.serial.bufSendHex("02", 70);
-            this.serial.bufSendHex("02", 70);
-            this.serial.bufSendHex("20", 70);
+            this.enqueueOutHex("30", 70);
+            this.enqueueOutHex("00", 70);
+            this.enqueueOutHex("02", 70);
+            this.enqueueOutHex("02", 70);
+            this.enqueueOutHex("20", 70);
 
             // Wait 2 seconds and then start game
             setTimeout(() => {
@@ -830,7 +841,7 @@ class OnlineTetris {
             return;
         }
         console.log("lines");
-        this.serial.bufSend(new Uint8Array([lines]), 10);
+        this.enqueueOut(new Uint8Array([lines]), 10);
     }
 
     gbWin(gb) {
@@ -840,12 +851,12 @@ class OnlineTetris {
         if (this.gameLoopActive) {
             this.gameLoopActive = false;
             setTimeout(() => {
-                this.serial.clearBuffer();
-                this.serial.bufSendHex("AA", 50); // aa indicates BAR FULL
-                this.serial.bufSendHex("02", 50); // finish
-                this.serial.bufSendHex("02", 50); // finish
-                this.serial.bufSendHex("02", 50); // finish
-                this.serial.bufSendHex("43", 50); // go to final screen
+                this.clearOut();
+                this.enqueueOutHex("AA", 50); // aa indicates BAR FULL
+                this.enqueueOutHex("02", 50); // finish
+                this.enqueueOutHex("02", 50); // finish
+                this.enqueueOutHex("02", 50); // finish
+                this.enqueueOutHex("43", 50); // go to final screen
             }, 200);
         }
         this.setState(this.StateFinished);
@@ -856,12 +867,12 @@ class OnlineTetris {
         // Stop game loop and clear buffer before sending lose sequence
         this.gameLoopActive = false;
         setTimeout(() => {
-            this.serial.clearBuffer();
-            this.serial.bufSendHex("77", 50); // 77 indicates other player has reached 30 lines
-            this.serial.bufSendHex("02", 50); // finish
-            this.serial.bufSendHex("02", 50); // finish
-            this.serial.bufSendHex("02", 50); // finish
-            this.serial.bufSendHex("43", 50); // go to final screen
+            this.clearOut();
+            this.enqueueOutHex("77", 50); // 77 indicates other player has reached 30 lines
+            this.enqueueOutHex("02", 50); // finish
+            this.enqueueOutHex("02", 50); // finish
+            this.enqueueOutHex("02", 50); // finish
+            this.enqueueOutHex("43", 50); // go to final screen
         }, 200);
         this.setState(this.StateFinished);
     }
@@ -888,82 +899,131 @@ class OnlineTetris {
         }
     }
 
-    startGameTimer() {
-        setTimeout(() => {
-            // Stop the loop if game ended or state changed
-            if (!this.gameLoopActive) {
-                console.log("Game loop stopped (gameLoopActive=false)");
-                return;
-            }
+    // --- Unified serial pump ------------------------------------------------
+    // The Game Boy is the SPI slave: the link only advances when we send a
+    // byte, and the firmware replies to exactly one byte per byte we send. So
+    // there must be a single sender and a single reader, and we must consume
+    // one reply for every send. This one pump serializes ALL outgoing bytes —
+    // setup, garbage, tiles, line attacks, win/lose sequences, and the
+    // steady-state height poll — through outQueue, reading one reply each.
+    //
+    // Only replies to the steady-state poll byte are interpreted as game
+    // events; replies to queued command bytes are read and discarded. That
+    // exactly mirrors the old WebUSB behaviour, where the device dropped the
+    // replies to fire-and-forget bufSend() writes. Over WebSerial those
+    // dropped replies instead piled up in the framed _dataQueue, so the poll
+    // loop read ever-staler frames until the link desynced and locked up.
 
-            // During startup, skip sending anything - just wait
-            if (this.gameStarting) {
-                this.startGameTimer(); // Just schedule next check
-                return;
-            }
+    enqueueOut(data, delay) {
+        this.outQueue.push([data, delay]);
+        this.startSerialPump();
+    }
 
-            // Determine what byte to send - priority: winLose > opponentHeight
-            let byteToSend;
+    enqueueOutHex(hex, delay) {
+        const data = new Uint8Array(hex.match(/.{1,2}/g).map(b => parseInt(b, 16)));
+        this.enqueueOut(data, delay);
+    }
+
+    clearOut() {
+        this.outQueue = [];
+    }
+
+    startSerialPump() {
+        this.serialActive = true;
+        if (this.pumpRunning) return;
+        this.pumpRunning = true;
+        this.serialStep();
+    }
+
+    stopSerialPump() {
+        this.serialActive = false;
+    }
+
+    serialStep() {
+        if (!this.serialActive) {
+            this.pumpRunning = false;
+            return;
+        }
+
+        let byte, delay, isPoll;
+        if (this.outQueue.length > 0) {
+            // Always drain queued command bytes first, regardless of game
+            // phase, so setup/garbage/tiles and win/lose sequences clock out.
+            const item = this.outQueue.shift();
+            byte = item[0];
+            delay = item[1];
+            isPoll = false;
+        } else if (this.gameLoopActive && !this.gameStarting) {
+            // Steady state: poll with our current outgoing byte.
+            let b;
             if (this.winLoseQueue.length > 0) {
-                byteToSend = this.winLoseQueue.shift();
-                console.log("Sending from winLoseQueue:", byteToSend.toString(16));
+                b = this.winLoseQueue.shift();
+                console.log("Sending from winLoseQueue:", b.toString(16));
             } else if (this.gb) {
-                // Default: send the highest height among still-alive opponents
-                var aliveOpponents = this.gb.getOtherUsers().filter(u => u.state === this.STATE_ALIVE);
-                var heights = [0].concat(aliveOpponents.map(u => u.height || 0));
-                byteToSend = Math.max(...heights);
+                const aliveOpponents = this.gb.getOtherUsers().filter(u => u.state === this.STATE_ALIVE);
+                const heights = [0].concat(aliveOpponents.map(u => u.height || 0));
+                b = Math.max(...heights);
             } else {
-                byteToSend = 0;
+                b = 0;
             }
+            byte = new Uint8Array([b]);
+            delay = 100;
+            isPoll = true;
+        } else {
+            // Nothing to send yet (game starting, or idle between rounds): don't
+            // clock the GB, matching the old loop's no-send startup window.
+            setTimeout(() => this.serialStep(), 50);
+            return;
+        }
 
-            this.serial.send(new Uint8Array([byteToSend]));
-            this.serial.read(64).then(result => {
-                if (!this.gameLoopActive) return;
-                var data = result.data.buffer;
-                // Note: data.length is intentionally used (undefined for ArrayBuffer)
-                // to match React behavior - ensures we always process the first byte
-                if (data.length > 1) {
-                    console.log("Data too long");
-                    console.log(data.length);
-                    // Ignore old data in buffer
-                    if (this.gameLoopActive) this.startGameTimer();
-                } else {
-                    var value = (new Uint8Array(data))[0];
-                    if (value < 20) {
-                        this.updateHeight(value);
-                    } else if ((value >= 0x80) && (value <= 0x85)) { // lines sent
-                        console.log("Sending lines!", value.toString(16));
-                        if (this.gb) this.gb.sendLines(value);
-                    } else if (value === 0x77) { // we won by reaching 30 lines
-                        console.log("We reached 30 lines - WIN!");
-                        this.setState(this.StateFinished);
-                        if (this.gb) this.gb.sendReached30Lines();
-                    } else if (value === 0xaa) { // we lost...
-                        // Ignore topped-out signal in first 3 seconds (may be leftover from previous game)
-                        const timeSinceStart = Date.now() - this.gameStartedAt;
-                        if (timeSinceStart < 3000) {
-                            console.log("Ignoring topped out - game just started (" + timeSinceStart + "ms ago)");
-                        } else {
-                            console.log("We topped out - LOSE!");
-                            this.setState(this.StateFinished);
-                            if (this.gb) this.gb.sendDead();
-                        }
-                    } else if (value === 0xFF) { // screen is filled after loss
-                        // Queue the final screen command instead of using buffer directly
-                        this.winLoseQueue.push(0x43);
-                    }
-                }
-                if (this.gameLoopActive) this.startGameTimer();
-            });
-        }, 100);
+        this.serial.send(byte).then(() => this.serial.read(64)).then(result => {
+            if (!this.serialActive) { this.pumpRunning = false; return; }
+            if (isPoll) this.handlePollReply(result);
+            setTimeout(() => this.serialStep(), delay);
+        }).catch(() => {
+            // A read timeout (a transient hiccup over WebSerial) must not kill
+            // the pump. The old loop had no catch here, so a single timeout
+            // permanently stopped communication; keep the pump alive and retry.
+            if (this.serialActive) {
+                setTimeout(() => this.serialStep(), 50);
+            } else {
+                this.pumpRunning = false;
+            }
+        });
     }
 
-    gbHeight() {
-        var aliveOpponents = this.gb.getOtherUsers().filter(u => u.state === this.STATE_ALIVE);
-        var heights = [0].concat(aliveOpponents.map(u => u.height || 0));
-        var maxHeight = Math.max(...heights);
-        this.serial.bufSend(new Uint8Array([maxHeight]), 10);
+    handlePollReply(result) {
+        const value = (new Uint8Array(result.data.buffer))[0];
+        if (value < 20) {
+            this.updateHeight(value);
+        } else if ((value >= 0x80) && (value <= 0x85)) { // lines sent
+            console.log("Sending lines!", value.toString(16));
+            if (this.gb) this.gb.sendLines(value);
+        } else if (value === 0x77) { // we won by reaching 30 lines
+            console.log("We reached 30 lines - WIN!");
+            this.setState(this.StateFinished);
+            if (this.gb) this.gb.sendReached30Lines();
+        } else if (value === 0xaa) { // we lost...
+            // Ignore topped-out signal in first 3 seconds (may be leftover from previous game)
+            const timeSinceStart = Date.now() - this.gameStartedAt;
+            if (timeSinceStart < 3000) {
+                console.log("Ignoring topped out - game just started (" + timeSinceStart + "ms ago)");
+            } else {
+                console.log("We topped out - LOSE!");
+                this.setState(this.StateFinished);
+                if (this.gb) this.gb.sendDead();
+            }
+        } else if (value === 0xFF) { // screen is filled after loss
+            // Queue the final screen command instead of using buffer directly
+            this.winLoseQueue.push(0x43);
+        }
     }
+
+    // Back-compat shim: the game-start sequence kicks the loop off here.
+    startGameTimer() {
+        this.startSerialPump();
+    }
+
 
     handleStartGame() {
         this.gb.sendStart();
